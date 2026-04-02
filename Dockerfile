@@ -1,24 +1,36 @@
 FROM node:20-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
 RUN apk add --no-cache libc6-compat
-WORKDIR /app
 
-COPY package.json package-lock.json* ./
+# Install dependencies
+FROM base AS deps
+WORKDIR /app
+COPY package.json ./
+COPY package-lock.json* ./
 RUN npm ci
 
-# Rebuild the source code only when needed
+# Build
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Build-time env vars needed for Next.js NEXT_PUBLIC_* inlining
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_APP_NAME
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_CALCOM_URL
+
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_CALCOM_URL=$NEXT_PUBLIC_CALCOM_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
-# Production image
+# Production
 FROM base AS runner
 WORKDIR /app
 
