@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe/client';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { createNotification } from '@/lib/notifications/client';
+import { sendEmail } from '@/lib/email/send';
+import { paymentConfirmationEmail } from '@/lib/email/templates';
+import { formatCurrency } from '@/lib/utils';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -53,6 +56,22 @@ export async function POST(request: NextRequest) {
             storage_path: `receipts/${quoteId}-${session.payment_intent}.json`,
             file_size: 0,
           });
+          // Send payment confirmation email
+          const { data: payContact } = await supabaseAdmin
+            .from('contacts')
+            .select('first_name, last_name, email')
+            .eq('id', quote.contact_id)
+            .single();
+          if (payContact?.email) {
+            const amount = (session.amount_total || 0) / 100;
+            const email = paymentConfirmationEmail({
+              clientName: `${payContact.first_name} ${payContact.last_name}`,
+              reference: quote.reference,
+              amount: formatCurrency(amount),
+              date: new Date().toLocaleDateString('fr-FR'),
+            });
+            await sendEmail({ to: payContact.email, ...email }).catch(() => {});
+          }
         }
       }
       break;

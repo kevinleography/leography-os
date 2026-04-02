@@ -81,11 +81,11 @@ const services: ServiceCardData[] = [
     configUrl: 'https://cal.com',
   },
   {
-    name: 'Documenso',
-    description: 'Signatures electroniques',
+    name: 'DocuSeal',
+    description: 'Signatures électroniques',
     icon: <FileSignature className="w-5 h-5" />,
     connected: false,
-    configUrl: 'https://documenso.com',
+    configUrl: 'https://docuseal.com',
   },
 ];
 

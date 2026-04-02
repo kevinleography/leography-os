@@ -358,7 +358,7 @@ export interface Document extends BaseEntity {
   storage_path: string;
   uploaded_by: string | null;
   file_size: number;
-  documenso_id: string | null;
+  docuseal_id: string | null;
   signature_status: SignatureStatus | null;
 }
 

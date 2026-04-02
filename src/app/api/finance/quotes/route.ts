@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { NextRequest, NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/email/send';
+import { quoteEmail } from '@/lib/email/templates';
+import { formatCurrency } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,6 +75,30 @@ export async function POST(request: NextRequest) {
       storage_path: `quotes/${data.id}.json`,
       file_size: 0,
     });
+
+    // Send branded quote email to client
+    const contact = data.contacts as any;
+    if (contact) {
+      const { data: contactFull } = await supabaseAdmin
+        .from('contacts')
+        .select('email')
+        .eq('id', body.contact_id)
+        .single();
+
+      if (contactFull?.email) {
+        const validDate = body.valid_until
+          ? new Date(body.valid_until).toLocaleDateString('fr-FR')
+          : '';
+        const email = quoteEmail({
+          clientName: `${contact.first_name} ${contact.last_name}`,
+          reference: ref,
+          amount: formatCurrency(body.amount_ttc),
+          validUntil: validDate,
+          viewUrl: `${process.env.NEXT_PUBLIC_APP_URL}/portal/validations`,
+        });
+        await sendEmail({ to: contactFull.email, ...email }).catch(() => {});
+      }
+    }
 
     return NextResponse.json(data, { status: 201 });
   } catch {
