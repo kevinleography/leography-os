@@ -14,7 +14,7 @@ const protectedPaths = [
   '/settings',
 ];
 
-const publicPaths = ['/', '/login', '/callback', '/api/webhooks'];
+const publicPaths = ['/', '/login', '/callback', '/api/webhooks', '/api/health'];
 
 function isProtectedPath(pathname: string): boolean {
   return protectedPaths.some(
@@ -29,53 +29,67 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Skip Supabase entirely for API routes and public paths
+  if (pathname.startsWith('/api/') || isPublicPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  // Only check auth for protected paths
+  if (!isProtectedPath(pathname)) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            response = NextResponse.next({
+              request: {
+                headers: request.headers,
+              },
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
         },
-        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
+      }
+    );
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(loginUrl);
     }
-  );
-
-  // Refresh the session
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  const { pathname } = request.nextUrl;
-
-  // Redirect unauthenticated users away from protected routes
-  if (isProtectedPath(pathname) && !session) {
+  } catch {
+    // If Supabase is unreachable, redirect to login
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Redirect authenticated users away from login
-  if (pathname === '/login' && session) {
+  if (pathname === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
