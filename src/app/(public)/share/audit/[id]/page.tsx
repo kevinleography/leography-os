@@ -3,16 +3,16 @@ import { notFound } from 'next/navigation';
 import { AuditReport } from '@/components/audit/audit-report';
 
 interface Props {
-  params: Promise<{ token: string }>;
+  params: Promise<{ id: string }>;
 }
 
 export default async function PublicAuditPage({ params }: Props) {
-  const { token } = await params;
+  const { id } = await params;
 
   const { data: audit, error } = await supabaseAdmin
     .from('web_audits')
     .select('*')
-    .eq('share_token', token)
+    .eq('share_token', id)
     .eq('status', 'completed')
     .single();
 

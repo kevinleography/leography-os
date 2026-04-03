@@ -55,7 +55,7 @@ export function AuditReport({ audit, readOnly = false }: AuditReportProps) {
 
   const shareUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/audit/public/${audit.share_token}`
+      ? `${window.location.origin}/share/audit/${audit.share_token}`
       : '';
 
   async function handleShare() {
