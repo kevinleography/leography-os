@@ -22,23 +22,39 @@ export async function POST(request: NextRequest) {
             .from('documents')
             .update({ signature_status: 'signed' })
             .eq('id', doc.id);
+        }
 
-          // Notify the first admin user
-          const { data: admin } = await supabaseAdmin
-            .from('users')
-            .select('id')
-            .limit(1)
-            .single();
-          if (admin) {
-            await createNotification({
-              userId: admin.id,
-              type: 'success',
-              title: 'Document signé',
-              message: `Le document "${doc.name}" a été signé`,
-              entityType: 'document',
-              entityId: doc.id,
-            });
-          }
+        // Also update any quote with this docuseal_submission_id → mark accepted
+        const { data: quote } = await supabaseAdmin
+          .from('quotes')
+          .select('id, reference, contact_id')
+          .eq('docuseal_submission_id', submissionId)
+          .single();
+
+        if (quote) {
+          await supabaseAdmin
+            .from('quotes')
+            .update({ status: 'accepted' })
+            .eq('id', quote.id);
+        }
+
+        // Notify the first admin user
+        const { data: admin } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .limit(1)
+          .single();
+        if (admin) {
+          await createNotification({
+            userId: admin.id,
+            type: 'success',
+            title: quote ? 'Devis signé' : 'Document signé',
+            message: quote
+              ? `Le devis ${quote.reference} a été signé par le client`
+              : `Le document "${doc?.name}" a été signé`,
+            entityType: quote ? 'quote' : 'document',
+            entityId: quote?.id || doc?.id,
+          });
         }
         break;
       }

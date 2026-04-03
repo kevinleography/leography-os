@@ -1,91 +1,413 @@
-import { supabaseAdmin } from '@/lib/supabase/admin';
-import { FinancePage } from '@/components/finance/finance-page';
-import type { Payment, Quote, Subscription } from '@/types/database';
+'use client';
 
-async function getFinanceData() {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, CreditCard, FileText, Send, Download, RefreshCw, X } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
-  const [paymentsRes, quotesRes, subscriptionsRes] = await Promise.all([
-    supabaseAdmin
-      .from('payments')
-      .select('*, contacts(first_name, last_name, company)')
-      .gte('created_at', thirtyDaysAgo)
-      .order('created_at', { ascending: false }),
-    supabaseAdmin
-      .from('quotes')
-      .select('*, contacts(first_name, last_name, company)')
-      .order('created_at', { ascending: false }),
-    supabaseAdmin
-      .from('subscriptions')
-      .select('*, contacts(first_name, last_name, company)')
-      .order('created_at', { ascending: false }),
-  ]);
+const app = {
+  color: 'bg-amber-500',
+  gradient: 'from-amber-400 to-amber-600',
+  text: 'text-amber-500',
+  bgLight: 'bg-amber-500/10',
+};
 
-  const payments = (paymentsRes.data ?? []) as (Payment & { contacts: any })[];
-  const quotes = (quotesRes.data ?? []) as (Quote & { contacts: any })[];
-  const subscriptions = (subscriptionsRes.data ?? []) as (Subscription & { contacts: any })[];
-
-  // Stats
-  const monthPayments = payments.filter(
-    (p) => p.status === 'succeeded' && p.paid_at && new Date(p.paid_at) >= new Date(startOfMonth)
-  );
-  const ca_month = monthPayments.reduce((sum, p) => sum + p.amount, 0);
-  const mrr = subscriptions
-    .filter((s) => s.status === 'active')
-    .reduce((sum, s) => sum + s.monthly_amount, 0);
-  const oneshot = monthPayments
-    .filter((p) => p.type === 'one_shot' || p.type === 'acompte' || p.type === 'solde')
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  // Revenue history (6 months)
-  const revenueHistory: { month: string; mrr: number; oneshot: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const start = d.toISOString();
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString();
-    const monthLabel = d.toLocaleDateString('fr-FR', { month: 'short' });
-
-    const { data } = await supabaseAdmin
-      .from('payments')
-      .select('amount, type')
-      .eq('status', 'succeeded')
-      .gte('paid_at', start)
-      .lte('paid_at', end);
-
-    const mp = (data ?? []) as { amount: number; type: string }[];
-    revenueHistory.push({
-      month: monthLabel,
-      mrr: mp.filter((p) => p.type === 'abonnement').reduce((s, p) => s + p.amount, 0),
-      oneshot: mp.filter((p) => p.type !== 'abonnement').reduce((s, p) => s + p.amount, 0),
-    });
-  }
-
-  return {
-    payments,
-    quotes,
-    subscriptions,
-    stats: { ca_month, mrr, oneshot },
-    revenueHistory,
-  };
+interface Invoice {
+  id: string;
+  number: string;
+  client: string;
+  date: string;
+  amount: number;
+  status: 'paid' | 'pending' | 'overdue';
+  email?: string;
 }
 
-export default async function Finance() {
-  const data = await getFinanceData();
+interface Quote {
+  id: string;
+  number: string;
+  client: string;
+  description: string;
+  amount: number;
+  status: string;
+  docuseal_submission_id?: string | null;
+}
+
+interface Stats {
+  ca_month: number;
+  mrr: number;
+  oneshot: number;
+  annual_total: number;
+}
+
+export default function Finance() {
+  const [isSendingInvoice, setIsSendingInvoice] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [sendEmail, setSendEmail] = useState('');
+  const [sendSubject, setSendSubject] = useState('');
+  const [sendMessage, setSendMessage] = useState('');
+
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [stats, setStats] = useState<Stats>({ ca_month: 0, mrr: 0, oneshot: 0, annual_total: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const startOfYear = new Date(now.getFullYear(), 0, 1).toISOString();
+
+      const [paymentsRes, quotesRes, subscriptionsRes] = await Promise.all([
+        supabase
+          .from('payments')
+          .select('*, contacts(first_name, last_name, company, email)')
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('quotes')
+          .select('*, contacts(first_name, last_name, company, email)')
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('subscriptions')
+          .select('monthly_amount, status')
+          .eq('status', 'active'),
+      ]);
+
+      const payments = paymentsRes.data ?? [];
+      const quotesData = quotesRes.data ?? [];
+      const subscriptions = subscriptionsRes.data ?? [];
+
+      const mrr = subscriptions.reduce((sum: number, s: any) => sum + (s.monthly_amount || 0), 0);
+      const monthPayments = payments.filter(
+        (p: any) => p.status === 'succeeded' && p.paid_at && new Date(p.paid_at) >= new Date(startOfMonth)
+      );
+      const ca_month = monthPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+      const oneshot = monthPayments
+        .filter((p: any) => p.type !== 'abonnement')
+        .reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+      const yearPayments = payments.filter(
+        (p: any) => p.status === 'succeeded' && p.paid_at && new Date(p.paid_at) >= new Date(startOfYear)
+      );
+      const annual_total = yearPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+      const invoiceList: Invoice[] = payments.slice(0, 5).map((p: any) => ({
+        id: p.id,
+        number: p.invoice_number || `INV-${p.id.slice(0, 6).toUpperCase()}`,
+        client: p.contacts
+          ? `${p.contacts.first_name || ''} ${p.contacts.last_name || ''}`.trim() || p.contacts.company || '—'
+          : '—',
+        date: p.paid_at
+          ? new Date(p.paid_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+          : new Date(p.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }),
+        amount: p.amount || 0,
+        status: p.status === 'succeeded' ? 'paid' : p.status === 'pending' ? 'pending' : 'overdue',
+        email: p.contacts?.email,
+      }));
+
+      const quoteList: Quote[] = quotesData.slice(0, 5).map((q: any) => ({
+        id: q.id,
+        number: q.quote_number || `EST-${q.id.slice(0, 6).toUpperCase()}`,
+        client: q.contacts
+          ? `${q.contacts.first_name || ''} ${q.contacts.last_name || ''}`.trim() || q.contacts.company || '—'
+          : '—',
+        description: q.title || q.description || 'Devis',
+        amount: q.total_amount || q.amount || 0,
+        status: q.status || 'pending',
+        docuseal_submission_id: q.docuseal_submission_id,
+      }));
+
+      setInvoices(invoiceList);
+      setQuotes(quoteList);
+      setStats({ ca_month, mrr, oneshot, annual_total });
+      setLoading(false);
+    }
+
+    load();
+  }, []);
+
+  const openSendPanel = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    setSendEmail(invoice.email || '');
+    setSendSubject(`Facture ${invoice.number} - Leography`);
+    setSendMessage(`Bonjour,\n\nVeuillez trouver ci-joint la facture ${invoice.number} pour nos prestations.\n\nMerci de procéder au règlement sous 30 jours.\n\nCordialement,\nL'équipe Leography`);
+    setIsSendingInvoice(true);
+  };
+
+  const handleSendInvoice = async () => {
+    if (!selectedInvoice) return;
+    setIsSending(true);
+    try {
+      const res = await fetch('/api/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: sendEmail,
+          subject: sendSubject,
+          message: sendMessage,
+          invoiceNumber: selectedInvoice.number,
+          amount: selectedInvoice.amount,
+        }),
+      });
+      if (!res.ok) throw new Error('Échec envoi');
+      setIsSendingInvoice(false);
+    } catch {
+      alert('Erreur lors de l\'envoi. Vérifiez la configuration Resend.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const formatAmount = (amount: number) =>
+    new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount / 100) + ' €';
+
+  const annualGoal = 50000000; // 500 000 € in cents
+  const annualPct = Math.min(Math.round((stats.annual_total / annualGoal) * 100), 100);
+
+  const statusLabel: Record<string, { label: string; cls: string }> = {
+    paid: { label: 'Payée', cls: 'bg-emerald-100 text-emerald-700' },
+    pending: { label: 'En attente', cls: 'bg-amber-100 text-amber-700' },
+    overdue: { label: 'En retard', cls: 'bg-red-100 text-red-700' },
+  };
+
+  const quoteStatusLabel: Record<string, { label: string; cls: string }> = {
+    pending: { label: 'En attente', cls: 'bg-amber-100 text-amber-700' },
+    sent: { label: 'Envoyé', cls: 'bg-sky-100 text-sky-700' },
+    accepted: { label: 'Accepté', cls: 'bg-emerald-100 text-emerald-700' },
+    rejected: { label: 'Refusé', cls: 'bg-red-100 text-red-700' },
+    draft: { label: 'Brouillon', cls: 'bg-slate-100 text-slate-700' },
+  };
 
   return (
-    <div className="page-wrapper space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-primary">Finance</h1>
+    <div className="h-full flex flex-col relative overflow-hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h2 className="text-2xl font-bold text-slate-800">Finances & Facturation</h2>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-colors">
+            <Plus size={18} /> Nouveau Devis
+          </button>
+          <button className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}>
+            <Plus size={18} /> Créer Facture
+          </button>
+        </div>
       </div>
-      <FinancePage
-        payments={data.payments}
-        quotes={data.quotes}
-        subscriptions={data.subscriptions}
-        stats={data.stats}
-        revenueHistory={data.revenueHistory}
-      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className={`bg-gradient-to-br ${app.gradient} p-8 rounded-3xl shadow-lg text-white relative overflow-hidden`}>
+          <div className="absolute top-0 right-0 p-6 opacity-20">
+            <CreditCard size={120} />
+          </div>
+          <p className="font-medium text-white/80 mb-2">Chiffre d'Affaires (Mois)</p>
+          <h3 className="text-5xl font-bold tracking-tight mb-6">
+            {loading ? '—' : formatAmount(stats.ca_month)}
+          </h3>
+          <div className="flex gap-6">
+            <div>
+              <p className="text-white/60 text-sm mb-1">MRR</p>
+              <p className="font-semibold text-xl">{loading ? '—' : formatAmount(stats.mrr)}</p>
+            </div>
+            <div>
+              <p className="text-white/60 text-sm mb-1">One-shot</p>
+              <p className="font-semibold text-xl">{loading ? '—' : formatAmount(stats.oneshot)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl border border-white/60 shadow-sm flex flex-col justify-center">
+          <h3 className="font-bold text-slate-800 mb-4">Objectif Annuel</h3>
+          <div className="flex justify-between text-sm mb-2">
+            <span className="font-medium text-slate-600">
+              Atteint : {loading ? '—' : formatAmount(stats.annual_total)}
+            </span>
+            <span className="font-medium text-slate-800">Objectif : 500 000 €</span>
+          </div>
+          <div className="w-full bg-slate-200 rounded-full h-4 mb-4">
+            <div className={`${app.color} h-4 rounded-full transition-all duration-700`} style={{ width: `${annualPct}%` }} />
+          </div>
+          <p className="text-sm text-slate-500">{annualPct}% de l'objectif atteint. Continuez comme ça !</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+        <div className="bg-white/60 backdrop-blur-xl rounded-3xl border border-white/60 shadow-sm overflow-hidden flex flex-col p-6">
+          <h3 className="font-bold text-slate-800 mb-4">Factures Récentes</h3>
+          <div className="space-y-3 overflow-y-auto pr-2 flex-1">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="animate-spin text-slate-300" size={24} />
+              </div>
+            ) : invoices.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-sm">Aucune facture</div>
+            ) : (
+              invoices.map((inv) => {
+                const st = statusLabel[inv.status] || statusLabel.pending;
+                return (
+                  <div
+                    key={inv.id}
+                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-white/50 rounded-2xl border border-white/60 hover:shadow-sm transition-all cursor-pointer gap-4"
+                  >
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                      <div className={`w-10 h-10 rounded-xl ${app.bgLight} ${app.text} flex items-center justify-center shrink-0`}>
+                        <FileText size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 truncate">Facture #{inv.number}</p>
+                        <p className="text-sm text-slate-500 truncate">{inv.client} • {inv.date}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                      <span className="font-bold text-slate-800">{formatAmount(inv.amount)}</span>
+                      <div className="flex items-center gap-4">
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold ${st.cls}`}>{st.label}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openSendPanel(inv); }}
+                          className="text-sky-500 hover:text-sky-700 bg-sky-50 p-2 rounded-lg transition-colors"
+                          title="Envoyer par email"
+                        >
+                          <Send size={16} />
+                        </button>
+                        <button className="text-slate-400 hover:text-slate-600"><Download size={18} /></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white/60 backdrop-blur-xl rounded-3xl border border-white/60 shadow-sm overflow-hidden flex flex-col p-6">
+          <h3 className="font-bold text-slate-800 mb-4">Devis en cours</h3>
+          <div className="space-y-3 overflow-y-auto pr-2 flex-1">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="animate-spin text-slate-300" size={24} />
+              </div>
+            ) : quotes.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-sm">Aucun devis</div>
+            ) : (
+              quotes.map((q) => {
+                const st = quoteStatusLabel[q.status] || quoteStatusLabel.pending;
+                return (
+                  <div
+                    key={q.id}
+                    className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-white/50 rounded-2xl border border-white/60 hover:shadow-sm transition-all cursor-pointer gap-4"
+                  >
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                        <FileText size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 truncate">Devis #{q.number}</p>
+                        <p className="text-sm text-slate-500 truncate">{q.client} • {q.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                      <span className="font-bold text-slate-800">{formatAmount(q.amount)}</span>
+                      <div className="flex items-center gap-4">
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold ${st.cls}`}>{st.label}</span>
+                        <button className="text-slate-400 hover:text-slate-600"><Download size={18} /></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Slide-over for sending invoice */}
+      <AnimatePresence>
+        {isSendingInvoice && selectedInvoice && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm z-40 rounded-3xl"
+              onClick={() => setIsSendingInvoice(false)}
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="absolute top-0 right-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 rounded-r-3xl border-l border-slate-200 flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-tr-3xl">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Envoyer la facture</h3>
+                  <p className="text-sm text-slate-500">Facture #{selectedInvoice.number}</p>
+                </div>
+                <button onClick={() => setIsSendingInvoice(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Destinataire</label>
+                  <input
+                    type="email"
+                    value={sendEmail}
+                    onChange={(e) => setSendEmail(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Sujet</label>
+                  <input
+                    type="text"
+                    value={sendSubject}
+                    onChange={(e) => setSendSubject(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Message</label>
+                  <textarea
+                    rows={6}
+                    value={sendMessage}
+                    onChange={(e) => setSendMessage(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition-all text-slate-800 resize-none"
+                  />
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-100 text-red-600 rounded-lg flex items-center justify-center shrink-0">
+                    <FileText size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-slate-800 text-sm truncate">Facture_{selectedInvoice.number}.pdf</p>
+                    <p className="text-xs text-slate-500">PDF généré</p>
+                  </div>
+                  <button className="text-slate-400 hover:text-slate-600"><Download size={16} /></button>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-slate-100 bg-slate-50/50 rounded-br-3xl">
+                <button
+                  onClick={handleSendInvoice}
+                  disabled={isSending}
+                  className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSending ? (
+                    <><RefreshCw size={18} className="animate-spin" /> Envoi en cours...</>
+                  ) : (
+                    <><Send size={18} /> Envoyer via Resend</>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
