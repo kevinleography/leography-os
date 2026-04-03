@@ -1,36 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   Bot, Zap, Bell, CreditCard, Calendar, LineChart, Kanban, Briefcase,
-  ArrowUpRight,
+  ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import {
   Area, AreaChart, ResponsiveContainer,
 } from 'recharts';
-
-// --- MOCK DATA ---
-const performanceData = [
-  { date: '01/03', google: 4.2, meta: 3.8 },
-  { date: '05/03', google: 4.5, meta: 4.0 },
-  { date: '10/03', google: 4.1, meta: 4.2 },
-  { date: '15/03', google: 4.8, meta: 4.5 },
-  { date: '20/03', google: 5.2, meta: 4.1 },
-  { date: '25/03', google: 5.0, meta: 4.6 },
-  { date: '30/03', google: 5.5, meta: 4.8 },
-];
-
-const mockMeetings = [
-  { id: 1, title: 'Point Mensuel - TechCorp', time: '10:00', type: 'Visio' },
-  { id: 2, title: 'Présentation Audit - Innovate', time: '14:30', type: 'Présentiel' },
-];
-
-const mockProjects = [
-  { id: 1, name: 'Refonte E-commerce', client: 'TechCorp', progress: 65, status: 'En production' },
-  { id: 2, name: 'Lancement App Mobile', client: 'Innovate', progress: 20, status: 'Onboarding' },
-];
 
 const APPS = {
   dashboard: { gradient: 'from-slate-200 to-slate-300' },
@@ -68,16 +47,145 @@ const Widget = ({ size = 'small', app, children, className = '', solid = false, 
   );
 };
 
+interface Meeting {
+  id: string;
+  title: string;
+  date: string;
+  type: string;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  client_name: string;
+  progress: number;
+  status: string;
+}
+
+interface FinanceStats {
+  mrr: number;
+  ca_month: number;
+}
+
+interface AdSnapshot {
+  date: string;
+  roas: number;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [notifications] = useState<{ id: string; appId: keyof typeof APPS; title: string; message: string; time: string }[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [dealsCount, setDealsCount] = useState<number | null>(null);
+  const [financeStats, setFinanceStats] = useState<FinanceStats | null>(null);
+  const [performanceData, setPerformanceData] = useState<AdSnapshot[]>([]);
+
+  useEffect(() => {
+    // Fetch upcoming meetings (interactions type=meeting, future dates)
+    fetch('/api/contacts?limit=1')
+      .catch(() => {});
+
+    // Meetings from interactions
+    fetch('/api/messages?type=meeting&limit=5')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+
+    // Fetch real upcoming meetings from Supabase interactions
+    const today = new Date().toISOString();
+    fetch(`/api/search?q=&type=interactions&filters=${encodeURIComponent(JSON.stringify({ type: 'meeting', date_gte: today }))}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.results) {
+          setMeetings(data.results.slice(0, 3).map((m: any) => ({
+            id: m.id,
+            title: m.title || m.notes || 'Rendez-vous',
+            date: m.date,
+            type: m.channel || 'Visio',
+          })));
+        }
+      })
+      .catch(() => {});
+
+    // Fetch deals count
+    fetch('/api/deals')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data)) {
+          const active = data.filter((d: any) => {
+            const stage = d.stage?.name?.toLowerCase() || '';
+            return stage !== 'gagné' && stage !== 'perdu';
+          });
+          setDealsCount(active.length);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch finance stats (MRR)
+    fetch('/api/finance')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.stats) {
+          setFinanceStats({ mrr: data.stats.mrr, ca_month: data.stats.ca_month });
+        }
+      })
+      .catch(() => {});
+
+    // Fetch recent projects
+    fetch('/api/projects')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.data && Array.isArray(data.data)) {
+          setProjects(data.data.slice(0, 3).map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            client_name: p.client_name || '',
+            progress: p.progress || 0,
+            status: p.status,
+          })));
+        } else if (Array.isArray(data)) {
+          setProjects(data.slice(0, 3).map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            client_name: p.client_name || '',
+            progress: p.progress || 0,
+            status: p.status,
+          })));
+        }
+      })
+      .catch(() => {});
+
+    // Fetch ad performance data
+    fetch('/api/ads')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.snapshots && Array.isArray(data.snapshots)) {
+          setPerformanceData(data.snapshots.slice(-7).map((s: any) => ({
+            date: new Date(s.date || s.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+            roas: s.roas || (s.revenue && s.spend ? s.revenue / s.spend : 0),
+          })));
+        } else if (Array.isArray(data)) {
+          setPerformanceData(data.slice(-7).map((s: any) => ({
+            date: new Date(s.date || s.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+            roas: s.roas || (s.revenue && s.spend ? s.revenue / s.spend : 0),
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const avgRoas = performanceData.length > 0
+    ? (performanceData.reduce((s, d) => s + d.roas, 0) / performanceData.length).toFixed(1)
+    : '—';
+
+  const formatCurrency = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
   return (
     <div className="absolute inset-0 pt-12 pb-28 px-4 sm:px-12 overflow-y-auto hide-scrollbar">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-800 tracking-tight drop-shadow-sm">Bonjour, Kevin</h1>
-          <p className="text-slate-600 mt-1 font-medium">Voici ce qui se passe aujourd'hui.</p>
+          <p className="text-slate-600 mt-1 font-medium">Voici ce qui se passe aujourd&apos;hui.</p>
         </div>
 
         {/* Intelligent Dispatching Input */}
@@ -94,15 +202,11 @@ export default function DashboardPage() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const val = e.currentTarget.value.toLowerCase();
-                  if (val.includes('projet')) {
-                    router.push('/projects');
-                  } else if (val.includes('facture')) {
-                    router.push('/finance');
-                  } else if (val.includes('audit')) {
-                    router.push('/audit');
-                  } else {
-                    alert("Simulation : L'IA n'a pas compris votre demande. Essayez avec 'projet', 'facture' ou 'audit'.");
-                  }
+                  if (val.includes('projet')) router.push('/projects');
+                  else if (val.includes('facture') || val.includes('devis')) router.push('/finance');
+                  else if (val.includes('audit')) router.push('/audit');
+                  else if (val.includes('contact') || val.includes('client')) router.push('/crm');
+                  else if (val.includes('rdv') || val.includes('rendez')) router.push('/agenda');
                   e.currentTarget.value = '';
                 }
               }}
@@ -111,15 +215,11 @@ export default function DashboardPage() {
               onClick={(e) => {
                 const input = e.currentTarget.previousElementSibling as HTMLInputElement;
                 const val = input.value.toLowerCase();
-                if (val.includes('projet')) {
-                  router.push('/projects');
-                } else if (val.includes('facture')) {
-                  router.push('/finance');
-                } else if (val.includes('audit')) {
-                  router.push('/audit');
-                } else {
-                  alert("Simulation : L'IA n'a pas compris votre demande. Essayez avec 'projet', 'facture' ou 'audit'.");
-                }
+                if (val.includes('projet')) router.push('/projects');
+                else if (val.includes('facture') || val.includes('devis')) router.push('/finance');
+                else if (val.includes('audit')) router.push('/audit');
+                else if (val.includes('contact') || val.includes('client')) router.push('/crm');
+                else if (val.includes('rdv') || val.includes('rendez')) router.push('/agenda');
                 input.value = '';
               }}
               className="px-4 py-2 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors flex items-center gap-2"
@@ -167,11 +267,15 @@ export default function DashboardPage() {
               <div className="p-2 bg-white/20 rounded-xl backdrop-blur-md">
                 <CreditCard size={24} className="text-white" />
               </div>
-              <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full backdrop-blur-md">+12% ce mois</span>
+              {financeStats && financeStats.ca_month > 0 && (
+                <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full backdrop-blur-md">Ce mois</span>
+              )}
             </div>
             <div className="mt-auto">
               <p className="text-white/80 text-sm font-medium">Revenu Récurrent (MRR)</p>
-              <h3 className="text-3xl font-bold tracking-tight">24 500 €</h3>
+              <h3 className="text-3xl font-bold tracking-tight">
+                {financeStats ? formatCurrency(financeStats.mrr) : '—'}
+              </h3>
             </div>
           </Widget>
 
@@ -182,15 +286,21 @@ export default function DashboardPage() {
               <h3 className="font-semibold">Prochains RDV</h3>
             </div>
             <div className="space-y-3 flex-1 overflow-hidden">
-              {mockMeetings.map(m => (
-                <div key={m.id} className="flex items-center gap-3">
-                  <div className={`w-1.5 h-full py-2 rounded-full ${APPS.agenda.color}`} />
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{m.title}</p>
-                    <p className="text-xs text-slate-500">{m.time} • {m.type}</p>
+              {meetings.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center mt-4">Aucun rendez-vous à venir</p>
+              ) : (
+                meetings.map(m => (
+                  <div key={m.id} className="flex items-center gap-3">
+                    <div className={`w-1.5 h-full py-2 rounded-full ${APPS.agenda.color}`} />
+                    <div>
+                      <p className="text-sm font-medium text-slate-800">{m.title}</p>
+                      <p className="text-xs text-slate-500">
+                        {new Date(m.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} • {m.type}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </Widget>
 
@@ -204,27 +314,39 @@ export default function DashboardPage() {
               <span className={`text-xs font-medium ${APPS.performances.bgLight} ${APPS.performances.text} px-2 py-1 rounded-full`}>30 derniers jours</span>
             </div>
             <div className="flex-1 w-full -ml-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={performanceData}>
-                  <defs>
-                    <linearGradient id="colorGoogle" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="google" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorGoogle)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {performanceData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={performanceData}>
+                    <defs>
+                      <linearGradient id="colorRoas" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="roas" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRoas)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-sm text-slate-400">Aucune donnée publicitaire</p>
+                </div>
+              )}
             </div>
             <div className="mt-4 flex justify-between items-end">
               <div>
                 <p className="text-sm text-slate-500 font-medium">Moyenne</p>
-                <p className="text-2xl font-bold text-slate-800">4.8x</p>
+                <p className="text-2xl font-bold text-slate-800">{avgRoas !== '—' ? `${avgRoas}x` : '—'}</p>
               </div>
-              <div className="flex items-center gap-1 text-emerald-600 text-sm font-medium">
-                <ArrowUpRight size={16} />
-                <span>+0.4</span>
-              </div>
+              {performanceData.length >= 2 && (
+                <div className={`flex items-center gap-1 text-sm font-medium ${
+                  performanceData[performanceData.length - 1].roas >= performanceData[performanceData.length - 2].roas
+                    ? 'text-emerald-600' : 'text-red-500'
+                }`}>
+                  {performanceData[performanceData.length - 1].roas >= performanceData[performanceData.length - 2].roas
+                    ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                  <span>{(performanceData[performanceData.length - 1].roas - performanceData[performanceData.length - 2].roas).toFixed(1)}</span>
+                </div>
+              )}
             </div>
           </Widget>
 
@@ -246,7 +368,7 @@ export default function DashboardPage() {
               <h3 className="font-semibold">Deals Actifs</h3>
             </div>
             <div className="flex-1 flex flex-col justify-center items-center">
-              <span className={`text-4xl font-bold ${APPS.pipeline.text}`}>12</span>
+              <span className={`text-4xl font-bold ${APPS.pipeline.text}`}>{dealsCount !== null ? dealsCount : '—'}</span>
               <span className="text-sm text-slate-500 font-medium mt-1">En cours</span>
             </div>
           </Widget>
@@ -258,17 +380,21 @@ export default function DashboardPage() {
               <h3 className="font-semibold">Projets Récents</h3>
             </div>
             <div className="space-y-4">
-              {mockProjects.map(p => (
-                <div key={p.id}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="font-medium text-slate-800">{p.name}</span>
-                    <span className="text-slate-500">{p.progress}%</span>
+              {projects.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center mt-4">Aucun projet en cours</p>
+              ) : (
+                projects.map(p => (
+                  <div key={p.id}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-medium text-slate-800">{p.name}</span>
+                      <span className="text-slate-500">{p.progress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2">
+                      <div className={`${APPS.projects.color} h-2 rounded-full`} style={{ width: `${p.progress}%` }} />
+                    </div>
                   </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div className={`${APPS.projects.color} h-2 rounded-full`} style={{ width: `${p.progress}%` }} />
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </Widget>
 

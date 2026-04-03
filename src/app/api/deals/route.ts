@@ -2,6 +2,17 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { NextRequest, NextResponse } from 'next/server';
 import type { CreateDealPayload } from '@/types/database';
 
+async function notifyN8n(webhookEnvKey: string, payload: Record<string, any>) {
+  const url = process.env[webhookEnvKey];
+  if (!url) {
+    console.error(`[n8n] Variable d'environnement ${webhookEnvKey} non configurée — webhook ignoré`);
+    return;
+  }
+  try {
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  } catch (err) { console.error(`[n8n] Échec webhook ${webhookEnvKey}:`, err); }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
@@ -42,6 +53,8 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    notifyN8n('N8N_WEBHOOK_NEW_DEAL', { event: 'deal.created', deal: data, timestamp: new Date().toISOString() });
 
     return NextResponse.json(data, { status: 201 });
   } catch (err) {

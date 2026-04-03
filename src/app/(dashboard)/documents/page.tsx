@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import { createClient } from '@/lib/supabase/client';
 import {
   Plus, Search, Upload, Download, FileText, Folder, Image as ImageIcon,
   FolderPlus, Lock, FileKey, BookOpen, Bold, Italic, List, StickyNote, X
@@ -17,25 +18,60 @@ const app = {
   gradient: 'from-sky-400 to-sky-600',
 };
 
-const mockFiles = [
-  { id: 1, name: 'Brief_TechCorp_Refonte.pdf', type: 'pdf', size: '1.2 Mo', date: '12 Mars 2026', folder: 'TechCorp' },
-  { id: 2, name: 'Maquette_Homepage_v3.fig', type: 'fig', size: '8.4 Mo', date: '10 Mars 2026', folder: 'TechCorp' },
-  { id: 3, name: 'Contrat_Innovate_2026.docx', type: 'docx', size: '245 Ko', date: '5 Mars 2026', folder: 'Innovate' },
-  { id: 4, name: 'Rapport_SEO_Q1.pdf', type: 'pdf', size: '3.1 Mo', date: '1 Mars 2026', folder: 'Global Solutions' },
-];
+interface DocFile {
+  id: string;
+  name: string;
+  type: string;
+  file_size: number;
+  created_at: string;
+  storage_path: string;
+  projects?: { name: string } | null;
+  contacts?: { first_name: string; last_name: string; company: string } | null;
+}
 
-const mockVault = [
-  { id: 1, name: 'Accès Google Ads - TechCorp', login: 'ads@techcorp.fr', category: 'Publicité' },
-  { id: 2, name: 'Hébergement OVH', login: 'admin@leography.fr', category: 'Infra' },
-  { id: 3, name: 'Stripe Dashboard', login: 'billing@leography.fr', category: 'Finance' },
-];
+interface VaultItem {
+  id: string;
+  service_name: string;
+  login: string;
+  encrypted_password: string;
+  category: string;
+  contacts?: { first_name: string; last_name: string; company: string } | null;
+}
 
-const mockNotes = [
-  { id: 1, title: 'Notes Call TechCorp', content: 'Besoins identifiés : refonte site + SEO. Budget ~15k€. Décision avant fin mars.', tags: ['client', 'site-web'], date: 'Hier' },
-  { id: 2, title: 'Idées Campagne Q2', content: 'Tester les Reels Instagram pour Innovate. Ciblage 25-45 ans, centres urbains.', tags: ['marketing', 'meta'], date: '10 Mars' },
-];
+interface NoteItem {
+  id: string;
+  title: string;
+  content_text: string;
+  content_json: Record<string, unknown>;
+  updated_at: string;
+  tags?: string[];
+}
 
-function NotesEditor({ onClose }: { onClose: () => void }) {
+function formatDate(dateStr: string): string {
+  try {
+    return new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+function formatSize(bytes: number): string {
+  if (bytes === 0) return '0 o';
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function getFileType(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  return ext;
+}
+
+function NotesEditor({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState('');
+  const [tagInput, setTagInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -43,6 +79,32 @@ function NotesEditor({ onClose }: { onClose: () => void }) {
     ],
     content: '',
   });
+
+  const handleSave = async () => {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      const tags = tagInput.split(',').map(t => t.trim()).filter(Boolean);
+      const contentText = editor?.getText() ?? '';
+      const contentJson = editor?.getJSON() ?? {};
+      await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          content_text: contentText,
+          content_json: contentJson,
+          tags,
+        }),
+      });
+      onSaved();
+      onClose();
+    } catch {
+      // silently fail
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm flex items-center justify-center p-4">
@@ -52,7 +114,13 @@ function NotesEditor({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
         </div>
         <div className="px-6 py-3 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
-          <input type="text" placeholder="Titre de la note..." className="flex-1 bg-transparent outline-none font-bold text-slate-800 text-lg" />
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Titre de la note..."
+            className="flex-1 bg-transparent outline-none font-bold text-slate-800 text-lg"
+          />
         </div>
         <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-3 text-slate-500">
           <button onClick={() => editor?.chain().focus().toggleBold().run()} className="hover:text-slate-800 p-1 rounded hover:bg-slate-100 transition-colors"><Bold size={16}/></button>
@@ -64,10 +132,20 @@ function NotesEditor({ onClose }: { onClose: () => void }) {
         </div>
         <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <input type="text" placeholder="Ajouter un tag..." className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none text-slate-600" />
+            <input
+              type="text"
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              placeholder="Tags (séparés par virgule)..."
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none text-slate-600"
+            />
           </div>
-          <button className={`${app.color} text-white px-4 py-2 rounded-xl font-medium text-sm hover:opacity-90 transition-opacity`}>
-            Enregistrer
+          <button
+            onClick={handleSave}
+            disabled={saving || !title.trim()}
+            className={`${app.color} text-white px-4 py-2 rounded-xl font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-50`}
+          >
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
           </button>
         </div>
       </div>
@@ -82,18 +160,70 @@ export default function DocumentsPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [search, setSearch] = useState('');
-  const [revealedVault, setRevealedVault] = useState<number[]>([]);
+  const [revealedVault, setRevealedVault] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredFiles = mockFiles.filter(f =>
+  const [files, setFiles] = useState<DocFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
+  const [loadingVault, setLoadingVault] = useState(true);
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(true);
+
+  // Fetch documents
+  useEffect(() => {
+    setLoadingFiles(true);
+    fetch('/api/documents')
+      .then(res => res.json())
+      .then(json => setFiles(json?.data ?? []))
+      .catch(() => setFiles([]))
+      .finally(() => setLoadingFiles(false));
+  }, []);
+
+  // Fetch vault (client_credentials) via Supabase client
+  useEffect(() => {
+    setLoadingVault(true);
+    const supabase = createClient();
+    supabase
+      .from('client_credentials')
+      .select('*, contacts(first_name, last_name, company)')
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          setVaultItems([]);
+        } else {
+          setVaultItems((data as VaultItem[] | null) ?? []);
+        }
+        setLoadingVault(false);
+      });
+  }, []);
+
+  // Fetch notes
+  const fetchNotes = useCallback(() => {
+    setLoadingNotes(true);
+    fetch('/api/notes')
+      .then(res => res.json())
+      .then(json => setNotes(json?.data ?? []))
+      .catch(() => setNotes([]))
+      .finally(() => setLoadingNotes(false));
+  }, []);
+
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
+
+  const filteredFiles = files.filter(f =>
     f.name.toLowerCase().includes(search.toLowerCase()) ||
-    f.folder.toLowerCase().includes(search.toLowerCase())
+    (f.projects?.name ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const filteredNotes = mockNotes.filter(n =>
+  const filteredNotes = notes.filter(n =>
     n.title.toLowerCase().includes(search.toLowerCase()) ||
-    n.content.toLowerCase().includes(search.toLowerCase())
+    (n.content_text ?? '').toLowerCase().includes(search.toLowerCase())
   );
+
+  // Get unique project folders from files
+  const folders = [...new Set(files.map(f => f.projects?.name).filter(Boolean))] as string[];
 
   return (
     <div className="h-full flex flex-col">
@@ -169,51 +299,66 @@ export default function DocumentsPage() {
           <input ref={fileInputRef} type="file" className="hidden" multiple />
 
           {/* Folders */}
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {['TechCorp', 'Innovate', 'Global Solutions'].map(folder => (
-              <div key={folder} className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-md rounded-xl border border-white/60 shadow-sm cursor-pointer hover:bg-white/80 transition-colors whitespace-nowrap">
-                <Folder size={16} className={app.text} />
-                <span className="text-sm font-medium text-slate-700">{folder}</span>
-              </div>
-            ))}
-            <button className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-slate-300 transition-colors whitespace-nowrap">
-              <FolderPlus size={16} /> Nouveau dossier
-            </button>
-          </div>
+          {folders.length > 0 && (
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {folders.map(folder => (
+                <div key={folder} className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-md rounded-xl border border-white/60 shadow-sm cursor-pointer hover:bg-white/80 transition-colors whitespace-nowrap">
+                  <Folder size={16} className={app.text} />
+                  <span className="text-sm font-medium text-slate-700">{folder}</span>
+                </div>
+              ))}
+              <button className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-slate-300 transition-colors whitespace-nowrap">
+                <FolderPlus size={16} /> Nouveau dossier
+              </button>
+            </div>
+          )}
 
           {/* File list */}
           <div className="bg-white/50 backdrop-blur-md rounded-2xl border border-white/60 shadow-sm overflow-hidden flex-1">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200/50 text-slate-500 text-sm">
-                  <th className="p-4 font-medium">Nom</th>
-                  <th className="p-4 font-medium hidden sm:table-cell">Dossier</th>
-                  <th className="p-4 font-medium hidden md:table-cell">Taille</th>
-                  <th className="p-4 font-medium hidden md:table-cell">Date</th>
-                  <th className="p-4 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFiles.map(file => (
-                  <tr key={file.id} className="border-b border-slate-200/30 hover:bg-white/40 transition-colors cursor-pointer">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg ${app.bgLight} ${app.text} flex items-center justify-center shrink-0`}>
-                          {file.type === 'pdf' ? <FileText size={16} /> : file.type === 'fig' ? <ImageIcon size={16} /> : <FileText size={16} />}
-                        </div>
-                        <span className="font-medium text-slate-800 text-sm truncate">{file.name}</span>
-                      </div>
-                    </td>
-                    <td className="p-4 text-slate-500 text-sm hidden sm:table-cell">{file.folder}</td>
-                    <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{file.size}</td>
-                    <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{file.date}</td>
-                    <td className="p-4 text-right">
-                      <button className="p-1.5 hover:bg-slate-200/50 rounded-lg text-slate-400 transition-colors"><Download size={16} /></button>
-                    </td>
+            {loadingFiles ? (
+              <div className="p-8 text-center text-slate-400 text-sm">Chargement...</div>
+            ) : filteredFiles.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                <FileText size={32} className="mx-auto opacity-30 mb-3" />
+                <p className="text-sm font-medium text-slate-500">Aucun document</p>
+                <p className="text-xs text-slate-400 mt-1">Uploadez vos premiers fichiers.</p>
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200/50 text-slate-500 text-sm">
+                    <th className="p-4 font-medium">Nom</th>
+                    <th className="p-4 font-medium hidden sm:table-cell">Projet</th>
+                    <th className="p-4 font-medium hidden md:table-cell">Taille</th>
+                    <th className="p-4 font-medium hidden md:table-cell">Date</th>
+                    <th className="p-4 font-medium"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredFiles.map(file => {
+                    const ext = getFileType(file.name);
+                    return (
+                      <tr key={file.id} className="border-b border-slate-200/30 hover:bg-white/40 transition-colors cursor-pointer">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg ${app.bgLight} ${app.text} flex items-center justify-center shrink-0`}>
+                              {ext === 'pdf' ? <FileText size={16} /> : ext === 'fig' || ext === 'figma' ? <ImageIcon size={16} /> : <FileText size={16} />}
+                            </div>
+                            <span className="font-medium text-slate-800 text-sm truncate">{file.name}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 text-slate-500 text-sm hidden sm:table-cell">{file.projects?.name ?? '-'}</td>
+                        <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{formatSize(file.file_size)}</td>
+                        <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{formatDate(file.created_at)}</td>
+                        <td className="p-4 text-right">
+                          <button className="p-1.5 hover:bg-slate-200/50 rounded-lg text-slate-400 transition-colors"><Download size={16} /></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
@@ -228,78 +373,99 @@ export default function DocumentsPage() {
               <p className="text-xs text-amber-700 mt-0.5">Les mots de passe sont chiffrés AES-256. Seuls les administrateurs y ont accès.</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mockVault.map(item => (
-              <div key={item.id} className="bg-white/60 backdrop-blur-xl p-5 rounded-2xl border border-white/60 shadow-sm">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl ${app.bgLight} ${app.text} flex items-center justify-center shrink-0`}>
-                      <FileKey size={20} />
+          {loadingVault ? (
+            <div className="p-8 text-center text-slate-400 text-sm">Chargement...</div>
+          ) : vaultItems.length === 0 ? (
+            <div className="p-8 text-center text-slate-400">
+              <FileKey size={32} className="mx-auto opacity-30 mb-3" />
+              <p className="text-sm font-medium text-slate-500">Aucun accès enregistré</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {vaultItems.map(item => (
+                <div key={item.id} className="bg-white/60 backdrop-blur-xl p-5 rounded-2xl border border-white/60 shadow-sm">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl ${app.bgLight} ${app.text} flex items-center justify-center shrink-0`}>
+                        <FileKey size={20} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-sm">{item.service_name}</h4>
+                        <p className="text-xs text-slate-500">{item.category ?? (item.contacts ? `${item.contacts.first_name} ${item.contacts.last_name}` : '')}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
-                      <p className="text-xs text-slate-500">{item.category}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                      <span className="text-xs text-slate-500">Login</span>
+                      <span className="text-xs font-medium text-slate-700">{item.login}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                      <span className="text-xs text-slate-500">Mot de passe</span>
+                      <button
+                        onClick={() => setRevealedVault(prev => prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id])}
+                        className={`text-xs font-medium ${revealedVault.includes(item.id) ? 'text-slate-700' : `${app.text}`}`}
+                      >
+                        {revealedVault.includes(item.id) ? '••••••••••' : 'Afficher'}
+                      </button>
                     </div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                    <span className="text-xs text-slate-500">Login</span>
-                    <span className="text-xs font-medium text-slate-700">{item.login}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                    <span className="text-xs text-slate-500">Mot de passe</span>
-                    <button
-                      onClick={() => setRevealedVault(prev => prev.includes(item.id) ? prev.filter(id => id !== item.id) : [...prev, item.id])}
-                      className={`text-xs font-medium ${revealedVault.includes(item.id) ? 'text-slate-700' : `${app.text}`}`}
-                    >
-                      {revealedVault.includes(item.id) ? '••••••••••' : 'Afficher'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Notes Tab */}
       {activeTab === 'notes' && (
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4">
-          {filteredNotes.map(note => (
-            <div
-              key={note.id}
-              onClick={() => setShowNoteEditor(true)}
-              className="bg-white/60 backdrop-blur-xl p-5 rounded-2xl border border-white/60 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group"
-            >
-              <div className="flex justify-between items-start">
-                <div className={`p-2 rounded-xl ${app.bgLight} ${app.text} group-hover:scale-110 transition-transform`}>
-                  <StickyNote size={16}/>
+        <div className="flex-1 flex flex-col">
+          {loadingNotes ? (
+            <div className="p-8 text-center text-slate-400 text-sm">Chargement...</div>
+          ) : filteredNotes.length === 0 && !search ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+              <StickyNote size={32} className="opacity-30 mb-3" />
+              <p className="text-sm font-medium text-slate-500">Aucune note</p>
+              <p className="text-xs text-slate-400 mt-1">Créez votre première note.</p>
+            </div>
+          ) : (
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pr-2 pb-4">
+              {filteredNotes.map(note => (
+                <div
+                  key={note.id}
+                  onClick={() => setShowNoteEditor(true)}
+                  className="bg-white/60 backdrop-blur-xl p-5 rounded-2xl border border-white/60 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col gap-3 group"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className={`p-2 rounded-xl ${app.bgLight} ${app.text} group-hover:scale-110 transition-transform`}>
+                      <StickyNote size={16}/>
+                    </div>
+                    <span className="text-xs text-slate-400">{formatDate(note.updated_at)}</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">{note.title}</h3>
+                    <p className="text-sm text-slate-500 mt-1 line-clamp-3">{note.content_text}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-auto">
+                    {(note.tags ?? []).map(tag => (
+                      <span key={tag} className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${app.bgLight} ${app.text}`}>{tag}</span>
+                    ))}
+                  </div>
                 </div>
-                <span className="text-xs text-slate-400">{note.date}</span>
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800">{note.title}</h3>
-                <p className="text-sm text-slate-500 mt-1 line-clamp-3">{note.content}</p>
-              </div>
-              <div className="flex flex-wrap gap-1 mt-auto">
-                {note.tags.map(tag => (
-                  <span key={tag} className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${app.bgLight} ${app.text}`}>{tag}</span>
-                ))}
+              ))}
+              <div
+                onClick={() => setShowNoteEditor(true)}
+                className="bg-white/30 backdrop-blur-md p-5 rounded-2xl border-2 border-dashed border-slate-200 hover:border-slate-300 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-slate-400 min-h-[160px]"
+              >
+                <Plus size={24} />
+                <span className="text-sm font-medium">Nouvelle note</span>
               </div>
             </div>
-          ))}
-          <div
-            onClick={() => setShowNoteEditor(true)}
-            className="bg-white/30 backdrop-blur-md p-5 rounded-2xl border-2 border-dashed border-slate-200 hover:border-slate-300 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 text-slate-400 min-h-[160px]"
-          >
-            <Plus size={24} />
-            <span className="text-sm font-medium">Nouvelle note</span>
-          </div>
+          )}
         </div>
       )}
 
-      {showNoteEditor && <NotesEditor onClose={() => setShowNoteEditor(false)} />}
+      {showNoteEditor && <NotesEditor onClose={() => setShowNoteEditor(false)} onSaved={fetchNotes} />}
     </div>
   );
 }
