@@ -88,6 +88,9 @@ export default function CRMPage() {
   const [showNewContactForm, setShowNewContactForm] = useState(false);
   const [creating, setCreating] = useState(false);
   const [scoring, setScoring] = useState(false);
+  const [showDealForm, setShowDealForm] = useState(false);
+  const [creatingDeal, setCreatingDeal] = useState(false);
+  const [newDeal, setNewDeal] = useState({ title: '', value: '' });
 
   // New contact form state (Blueprint V8 fields)
   const [newContact, setNewContact] = useState({
@@ -189,6 +192,63 @@ export default function CRMPage() {
       alert('Erreur lors du scoring IA. Vérifiez la configuration Anthropic.');
     } finally {
       setScoring(false);
+    }
+  };
+
+  // Create deal for active contact
+  const handleCreateDeal = async () => {
+    if (!activeContact || !newDeal.title.trim()) return;
+    setCreatingDeal(true);
+    try {
+      // Fetch first pipeline stage (Nouveau)
+      const stagesRes = await fetch('/api/deals');
+      const existingDeals = await stagesRes.json();
+      // Try to find a stage_id from existing deals, or fetch stages directly
+      let stageId: string | null = null;
+      if (Array.isArray(existingDeals) && existingDeals.length > 0 && existingDeals[0].stage?.id) {
+        // Use the first stage from any existing deal as fallback
+        stageId = existingDeals[0].stage.id;
+      }
+      if (!stageId) {
+        // Fetch pipeline_stages directly via supabase or a known first stage
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        const { data: stages } = await supabase
+          .from('pipeline_stages')
+          .select('id')
+          .order('position', { ascending: true })
+          .limit(1);
+        stageId = stages?.[0]?.id ?? null;
+      }
+      if (!stageId) {
+        alert('Aucune étape de pipeline trouvée. Créez d\'abord un pipeline.');
+        return;
+      }
+      const res = await fetch('/api/deals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newDeal.title.trim(),
+          value: parseFloat(newDeal.value) || 0,
+          contact_id: activeContact.id,
+          stage_id: stageId,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Erreur création deal');
+      }
+      const created = await res.json();
+      setActiveContact(prev => prev ? {
+        ...prev,
+        deals: [...(prev.deals || []), { id: created.id, title: created.title, value: created.value, probability: created.probability || 0, stage: created.stage }],
+      } : prev);
+      setShowDealForm(false);
+      setNewDeal({ title: '', value: '' });
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setCreatingDeal(false);
     }
   };
 
@@ -435,7 +495,53 @@ export default function CRMPage() {
                       </div>
                     ))
                   )}
-                  <button className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-sm font-medium text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-colors">
+                  <AnimatePresence>
+                    {showDealForm && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-3 bg-white/50 border border-slate-200/50 rounded-xl mb-3 space-y-2">
+                          <input
+                            type="text"
+                            value={newDeal.title}
+                            onChange={e => setNewDeal({ ...newDeal, title: e.target.value })}
+                            placeholder="Titre du deal..."
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800"
+                          />
+                          <input
+                            type="number"
+                            value={newDeal.value}
+                            onChange={e => setNewDeal({ ...newDeal, value: e.target.value })}
+                            placeholder="Montant (EUR)..."
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => { setShowDealForm(false); setNewDeal({ title: '', value: '' }); }}
+                              className="flex-1 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+                            >
+                              Annuler
+                            </button>
+                            <button
+                              onClick={handleCreateDeal}
+                              disabled={creatingDeal || !newDeal.title.trim()}
+                              className={`flex-1 ${app.color} text-white py-1.5 rounded-lg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1`}
+                            >
+                              {creatingDeal ? <RefreshCw size={12} className="animate-spin" /> : <Plus size={12} />}
+                              {creatingDeal ? 'Création...' : 'Créer'}
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <button
+                    onClick={() => setShowDealForm(true)}
+                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-sm font-medium text-slate-500 hover:border-slate-300 hover:text-slate-600 transition-colors"
+                  >
                     + Ajouter un deal
                   </button>
                 </div>

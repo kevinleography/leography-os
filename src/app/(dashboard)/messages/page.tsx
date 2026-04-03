@@ -67,6 +67,8 @@ export default function MessagesPage() {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
 
   useEffect(() => {
     setLoadingChats(true);
@@ -161,6 +163,29 @@ export default function MessagesPage() {
     }
   };
 
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || !selectedChat || sendingChat) return;
+    setSendingChat(true);
+    try {
+      const res = await fetch(`/api/messages/${selectedChat}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: chatInput.trim() }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.data) {
+          setChatMessages(prev => [...prev, json.data]);
+        }
+        setChatInput('');
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setSendingChat(false);
+    }
+  };
+
   const selectedChatData = chats.find(c => c.id === selectedChat);
 
   return (
@@ -179,9 +204,7 @@ export default function MessagesPage() {
         </div>
         <button
           onClick={() => {
-            if (activeTab === 'emails') {
-              setIsComposeOpen(true);
-            }
+            setIsComposeOpen(true);
           }}
           className={`w-full sm:w-auto justify-center ${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}
         >
@@ -270,8 +293,19 @@ export default function MessagesPage() {
                 </div>
                 <div className="p-4 border-t border-slate-200/50 bg-white/50">
                   <div className="flex gap-2">
-                    <input type="text" placeholder="Écrire un message..." className="flex-1 px-4 py-2 bg-white border border-slate-200/50 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/50" />
-                    <button className={`${app.color} text-white p-2 rounded-xl hover:opacity-90 transition-opacity`}>
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                      placeholder="Écrire un message..."
+                      className="flex-1 px-4 py-2 bg-white border border-slate-200/50 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    />
+                    <button
+                      onClick={handleSendChat}
+                      disabled={sendingChat || !chatInput.trim()}
+                      className={`${app.color} text-white p-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50`}
+                    >
                       <Send size={20} />
                     </button>
                   </div>

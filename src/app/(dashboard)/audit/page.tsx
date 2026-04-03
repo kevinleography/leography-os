@@ -31,6 +31,7 @@ export default function AuditPage() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [error, setError] = useState('');
   const [polling, setPolling] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const pollForResult = async (auditId: string, attempt = 0) => {
     if (attempt > 30) {
@@ -180,13 +181,20 @@ export default function AuditPage() {
             <div className="flex gap-2">
               {shareUrl && (
                 <button
-                  onClick={() => { navigator.clipboard.writeText(shareUrl); }}
-                  className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-medium flex items-center gap-2 hover:bg-slate-50 transition-colors shadow-sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className={`px-4 py-2 border rounded-xl text-sm font-medium flex items-center gap-2 transition-colors shadow-sm ${copied ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
                 >
-                  <Share2 size={16} /> Partager
+                  {copied ? <><CheckCircle2 size={16} /> Copié !</> : <><Share2 size={16} /> Partager</>}
                 </button>
               )}
-              <button className="px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-medium flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-md">
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-medium flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-md"
+              >
                 <Download size={16} /> Exporter PDF
               </button>
             </div>

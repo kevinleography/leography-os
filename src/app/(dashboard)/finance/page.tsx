@@ -359,7 +359,7 @@ export default function Finance() {
                         >
                           <Send size={16} />
                         </button>
-                        <button className="text-slate-400 hover:text-slate-600"><Download size={18} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); alert('Génération PDF à venir — utilisez l\'envoi par email pour le moment.'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger PDF"><Download size={18} /></button>
                       </div>
                     </div>
                   </div>
@@ -399,7 +399,7 @@ export default function Finance() {
                       <span className="font-bold text-slate-800">{formatAmount(q.amount)}</span>
                       <div className="flex items-center gap-4">
                         <span className={`px-3 py-1 rounded-lg text-xs font-bold ${st.cls}`}>{st.label}</span>
-                        <button className="text-slate-400 hover:text-slate-600"><Download size={18} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); alert('Génération PDF à venir — utilisez l\'envoi par email pour le moment.'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger PDF"><Download size={18} /></button>
                       </div>
                     </div>
                   </div>

@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, ArrowLeft, Briefcase, History, ListTodo, CheckSquare,
-  PlayCircle, StopCircle, Loader2
+  PlayCircle, StopCircle, Loader2, X
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const app = {
   color: 'bg-indigo-500',
@@ -65,6 +66,11 @@ export default function ProjectsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [newProject, setNewProject] = useState({ name: '', type: 'site_web', budget: '', start_date: '', deadline: '', contact_id: '' });
+  const [contacts, setContacts] = useState<{ id: string; label: string }[]>([]);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -75,6 +81,43 @@ export default function ProjectsPage() {
     }
     return () => clearInterval(interval);
   }, [isTracking]);
+
+  useEffect(() => {
+    fetch('/api/contacts?limit=100')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.data) setContacts(d.data.map((c: any) => ({ id: c.id, label: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.company || c.email })));
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleCreateProject = async () => {
+    if (!newProject.name.trim()) return;
+    setCreatingProject(true);
+    setProjectError(null);
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProject.name,
+          type: newProject.type,
+          budget: newProject.budget ? Math.round(parseFloat(newProject.budget) * 100) : 0,
+          start_date: newProject.start_date || null,
+          deadline: newProject.deadline || null,
+          contact_id: newProject.contact_id || null,
+          status: 'draft',
+          progress: 0,
+        }),
+      });
+      if (!res.ok) { const err = await res.json(); setProjectError(err.error || 'Erreur'); return; }
+      const project = await res.json();
+      setProjects(prev => [project, ...prev]);
+      setShowNewProject(false);
+      setNewProject({ name: '', type: 'site_web', budget: '', start_date: '', deadline: '', contact_id: '' });
+    } catch { setProjectError('Erreur réseau'); }
+    finally { setCreatingProject(false); }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -163,7 +206,7 @@ export default function ProjectsPage() {
           </h2>
         </div>
         {!selectedProject ? (
-          <button className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}>
+          <button onClick={() => setShowNewProject(true)} className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}>
             <Plus size={18} /> Nouveau Projet
           </button>
         ) : (
@@ -309,6 +352,65 @@ export default function ProjectsPage() {
           )}
         </div>
       )}
+      <AnimatePresence>
+        {showNewProject && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowNewProject(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-slate-800">Nouveau Projet</h3>
+                  <button onClick={() => setShowNewProject(false)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nom du projet</label>
+                    <input type="text" value={newProject.name} onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))} placeholder="Refonte site web" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Type</label>
+                      <select value={newProject.type} onChange={e => setNewProject(p => ({ ...p, type: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none">
+                        <option value="site_web">Site Web</option>
+                        <option value="app_mobile">App Mobile</option>
+                        <option value="branding">Branding</option>
+                        <option value="marketing">Marketing</option>
+                        <option value="audit">Audit</option>
+                        <option value="other">Autre</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Budget (€)</label>
+                      <input type="number" value={newProject.budget} onChange={e => setNewProject(p => ({ ...p, budget: e.target.value }))} placeholder="5000" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Client</label>
+                    <select value={newProject.contact_id} onChange={e => setNewProject(p => ({ ...p, contact_id: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none">
+                      <option value="">Sélectionner un client</option>
+                      {contacts.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Date de début</label>
+                      <input type="date" value={newProject.start_date} onChange={e => setNewProject(p => ({ ...p, start_date: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Deadline</label>
+                      <input type="date" value={newProject.deadline} onChange={e => setNewProject(p => ({ ...p, deadline: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none" />
+                    </div>
+                  </div>
+                  {projectError && <p className="text-sm text-red-600">{projectError}</p>}
+                  <button onClick={handleCreateProject} disabled={creatingProject || !newProject.name.trim()} className={`w-full ${app.color} text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50`}>
+                    {creatingProject ? <><Loader2 size={18} className="animate-spin" /> Création...</> : <><Plus size={18} /> Créer le projet</>}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

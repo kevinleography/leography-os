@@ -169,6 +169,52 @@ export default function DocumentsPage() {
   const [loadingVault, setLoadingVault] = useState(true);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  // Download file from Supabase storage
+  const handleDownload = async (file: DocFile) => {
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(file.storage_path, 60);
+      if (error || !data?.signedUrl) {
+        alert('Impossible de générer le lien de téléchargement.');
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = data.signedUrl;
+      a.download = file.name;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      alert('Erreur lors du téléchargement.');
+    }
+  };
+
+  // Create a new folder (project placeholder)
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setCreatingFolder(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from('projects').insert({ name, type: 'other', status: 'active' });
+      if (error) throw error;
+      // Refresh files to pick up new project folder
+      const res = await fetch('/api/documents');
+      const json = await res.json();
+      setFiles(json?.data ?? []);
+      setNewFolderName('');
+    } catch {
+      alert('Erreur lors de la création du dossier.');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
 
   // Fetch documents
   useEffect(() => {
@@ -307,9 +353,39 @@ export default function DocumentsPage() {
                   <span className="text-sm font-medium text-slate-700">{folder}</span>
                 </div>
               ))}
-              <button className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-slate-300 transition-colors whitespace-nowrap">
-                <FolderPlus size={16} /> Nouveau dossier
-              </button>
+              {creatingFolder ? (
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }}
+                    placeholder="Nom du dossier..."
+                    autoFocus
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-sky-500/20 text-slate-800 w-40"
+                  />
+                  <button
+                    onClick={handleCreateFolder}
+                    disabled={!newFolderName.trim()}
+                    className={`${app.color} text-white px-3 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50`}
+                  >
+                    OK
+                  </button>
+                  <button
+                    onClick={() => { setCreatingFolder(false); setNewFolderName(''); }}
+                    className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setCreatingFolder(true)}
+                  className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-slate-300 transition-colors whitespace-nowrap"
+                >
+                  <FolderPlus size={16} /> Nouveau dossier
+                </button>
+              )}
             </div>
           )}
 
@@ -351,7 +427,12 @@ export default function DocumentsPage() {
                         <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{formatSize(file.file_size)}</td>
                         <td className="p-4 text-slate-500 text-sm hidden md:table-cell">{formatDate(file.created_at)}</td>
                         <td className="p-4 text-right">
-                          <button className="p-1.5 hover:bg-slate-200/50 rounded-lg text-slate-400 transition-colors"><Download size={16} /></button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDownload(file); }}
+                            className="p-1.5 hover:bg-slate-200/50 rounded-lg text-slate-400 transition-colors"
+                          >
+                            <Download size={16} />
+                          </button>
                         </td>
                       </tr>
                     );
