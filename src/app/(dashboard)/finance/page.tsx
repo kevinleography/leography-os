@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, CreditCard, FileText, Send, Download, RefreshCw, X } from 'lucide-react';
+import { Plus, CreditCard, FileText, Send, Download, RefreshCw, X, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 const app = {
@@ -46,6 +46,19 @@ export default function Finance() {
   const [sendEmail, setSendEmail] = useState('');
   const [sendSubject, setSendSubject] = useState('');
   const [sendMessage, setSendMessage] = useState('');
+
+  // Quote creation modal
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [quoteForm, setQuoteForm] = useState({ contact_id: '', amount_ht: '', description: '', valid_until: '' });
+  const [creatingQuote, setCreatingQuote] = useState(false);
+  const [contacts, setContacts] = useState<{ id: string; label: string }[]>([]);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+
+  // Invoice creation modal
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({ contact_id: '', amount: '', description: '' });
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -129,6 +142,83 @@ export default function Finance() {
     load();
   }, []);
 
+  // Load contacts for modals
+  useEffect(() => {
+    fetch('/api/contacts?limit=100')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.data) {
+          setContacts(d.data.map((c: any) => ({
+            id: c.id,
+            label: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.company || c.email,
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleCreateQuote = async () => {
+    if (!quoteForm.contact_id || !quoteForm.amount_ht) return;
+    setCreatingQuote(true);
+    setQuoteError(null);
+    try {
+      const amountHt = Math.round(parseFloat(quoteForm.amount_ht) * 100);
+      const amountTtc = Math.round(amountHt * 1.2);
+      const res = await fetch('/api/finance/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact_id: quoteForm.contact_id,
+          amount_ht: amountHt,
+          amount_ttc: amountTtc,
+          description: quoteForm.description,
+          valid_until: quoteForm.valid_until || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setQuoteError(err.error || 'Erreur');
+        return;
+      }
+      setShowQuoteModal(false);
+      setQuoteForm({ contact_id: '', amount_ht: '', description: '', valid_until: '' });
+      // Reload data
+      window.location.reload();
+    } catch {
+      setQuoteError('Erreur réseau');
+    } finally {
+      setCreatingQuote(false);
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    if (!invoiceForm.contact_id || !invoiceForm.amount) return;
+    setCreatingInvoice(true);
+    setInvoiceError(null);
+    try {
+      const amount = Math.round(parseFloat(invoiceForm.amount) * 100);
+      const supabase = createClient();
+      const { error } = await supabase.from('payments').insert({
+        contact_id: invoiceForm.contact_id,
+        amount,
+        type: 'one_shot',
+        status: 'pending',
+        description: invoiceForm.description,
+      });
+      if (error) {
+        setInvoiceError(error.message);
+        return;
+      }
+      setShowInvoiceModal(false);
+      setInvoiceForm({ contact_id: '', amount: '', description: '' });
+      window.location.reload();
+    } catch {
+      setInvoiceError('Erreur réseau');
+    } finally {
+      setCreatingInvoice(false);
+    }
+  };
+
   const openSendPanel = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
     setSendEmail(invoice.email || '');
@@ -186,10 +276,10 @@ export default function Finance() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h2 className="text-2xl font-bold text-slate-800">Finances & Facturation</h2>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-colors">
+          <button onClick={() => setShowQuoteModal(true)} className="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-sm hover:bg-slate-50 transition-colors">
             <Plus size={18} /> Nouveau Devis
           </button>
-          <button className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}>
+          <button onClick={() => setShowInvoiceModal(true)} className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 shadow-md hover:opacity-90 transition-opacity`}>
             <Plus size={18} /> Créer Facture
           </button>
         </div>
@@ -403,6 +493,86 @@ export default function Finance() {
                     <><Send size={18} /> Envoyer via Resend</>
                   )}
                 </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Quote Creation Modal */}
+      <AnimatePresence>
+        {showQuoteModal && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowQuoteModal(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-slate-800">Nouveau Devis</h3>
+                  <button onClick={() => setShowQuoteModal(false)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Client</label>
+                    <select value={quoteForm.contact_id} onChange={e => setQuoteForm(f => ({ ...f, contact_id: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20">
+                      <option value="">Sélectionner un client</option>
+                      {contacts.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Montant HT (€)</label>
+                    <input type="number" step="0.01" value={quoteForm.amount_ht} onChange={e => setQuoteForm(f => ({ ...f, amount_ht: e.target.value }))} placeholder="1500.00" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Description</label>
+                    <input type="text" value={quoteForm.description} onChange={e => setQuoteForm(f => ({ ...f, description: e.target.value }))} placeholder="Refonte site web" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Valide jusqu&apos;au</label>
+                    <input type="date" value={quoteForm.valid_until} onChange={e => setQuoteForm(f => ({ ...f, valid_until: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
+                  </div>
+                  {quoteError && <p className="text-sm text-red-600">{quoteError}</p>}
+                  <button onClick={handleCreateQuote} disabled={creatingQuote || !quoteForm.contact_id || !quoteForm.amount_ht} className={`w-full ${app.color} text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50`}>
+                    {creatingQuote ? <><Loader2 size={18} className="animate-spin" /> Création...</> : <><Plus size={18} /> Créer le devis</>}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Invoice Creation Modal */}
+      <AnimatePresence>
+        {showInvoiceModal && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowInvoiceModal(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-slate-800">Créer une Facture</h3>
+                  <button onClick={() => setShowInvoiceModal(false)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Client</label>
+                    <select value={invoiceForm.contact_id} onChange={e => setInvoiceForm(f => ({ ...f, contact_id: e.target.value }))} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20">
+                      <option value="">Sélectionner un client</option>
+                      {contacts.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Montant TTC (€)</label>
+                    <input type="number" step="0.01" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} placeholder="1800.00" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Description</label>
+                    <input type="text" value={invoiceForm.description} onChange={e => setInvoiceForm(f => ({ ...f, description: e.target.value }))} placeholder="Prestation web" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
+                  </div>
+                  {invoiceError && <p className="text-sm text-red-600">{invoiceError}</p>}
+                  <button onClick={handleCreateInvoice} disabled={creatingInvoice || !invoiceForm.contact_id || !invoiceForm.amount} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                    {creatingInvoice ? <><Loader2 size={18} className="animate-spin" /> Création...</> : <><CreditCard size={18} /> Créer la facture</>}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </>

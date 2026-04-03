@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Plus, Search, Mail, MessageSquare, Send, ArrowLeft, ArrowRight,
-  Bold, Italic, List, Link, Image as ImageIcon, Paperclip, StickyNote, X
+  Bold, Italic, List, Link, Image as ImageIcon, Paperclip, StickyNote, X, Loader2
 } from 'lucide-react';
 
 const app = {
@@ -57,6 +57,16 @@ export default function MessagesPage() {
   const [chatMessages, setChatMessages] = useState<MessageItem[]>([]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+
+  // Compose email state
+  const [composeFrom, setComposeFrom] = useState('gestion@leography.fr');
+  const [composeTo, setComposeTo] = useState('');
+  const [composeCc, setComposeCc] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoadingChats(true);
@@ -114,6 +124,42 @@ export default function MessagesPage() {
       .catch(() => setChatMessages([]))
       .finally(() => setLoadingMessages(false));
   }, [selectedChat]);
+
+  const handleSendEmail = async () => {
+    if (!composeTo.trim() || !composeSubject.trim()) return;
+    setSendingEmail(true);
+    setEmailError(null);
+    try {
+      const res = await fetch('/api/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: composeTo.trim(),
+          subject: composeSubject.trim(),
+          message: composeBody,
+          from: composeFrom,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setEmailError(err.error || 'Erreur lors de l\'envoi');
+        return;
+      }
+      setEmailSent(true);
+      setTimeout(() => {
+        setIsComposeOpen(false);
+        setEmailSent(false);
+        setComposeTo('');
+        setComposeCc('');
+        setComposeSubject('');
+        setComposeBody('');
+      }, 1500);
+    } catch {
+      setEmailError('Erreur réseau');
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   const selectedChatData = chats.find(c => c.id === selectedChat);
 
@@ -278,27 +324,25 @@ export default function MessagesPage() {
               <div className="px-4 sm:px-6 py-4 border-b border-slate-100 space-y-3 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-slate-500 w-10">De :</span>
-                  <select className="flex-1 bg-transparent outline-none font-medium text-slate-800 truncate">
-                    <option>contact@leography.fr</option>
-                    <option>facturation@leography.fr</option>
+                  <select value={composeFrom} onChange={e => setComposeFrom(e.target.value)} className="flex-1 bg-transparent outline-none font-medium text-slate-800 truncate">
+                    <option value="gestion@leography.fr">gestion@leography.fr</option>
+                    <option value="contact@leography.fr">contact@leography.fr</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-2 border-t border-slate-50 pt-3">
                   <span className="text-slate-500 w-10">À :</span>
-                  <input type="text" className="flex-1 bg-transparent outline-none text-slate-800" placeholder="destinataire@email.com" />
+                  <input type="text" value={composeTo} onChange={e => setComposeTo(e.target.value)} className="flex-1 bg-transparent outline-none text-slate-800" placeholder="destinataire@email.com" />
                 </div>
                 <div className="flex items-center gap-2 border-t border-slate-50 pt-3">
                   <span className="text-slate-500 w-10">Cc :</span>
-                  <input type="text" className="flex-1 bg-transparent outline-none text-slate-800" />
-                </div>
-                <div className="flex items-center gap-2 border-t border-slate-50 pt-3">
-                  <span className="text-slate-500 w-10">Bcc :</span>
-                  <input type="text" className="flex-1 bg-transparent outline-none text-slate-800" />
+                  <input type="text" value={composeCc} onChange={e => setComposeCc(e.target.value)} className="flex-1 bg-transparent outline-none text-slate-800" />
                 </div>
                 <div className="flex items-center gap-2 border-t border-slate-50 pt-3">
                   <span className="text-slate-500 w-10">Sujet :</span>
-                  <input type="text" className="flex-1 bg-transparent outline-none font-medium text-slate-800" placeholder="Sujet de l'e-mail" />
+                  <input type="text" value={composeSubject} onChange={e => setComposeSubject(e.target.value)} className="flex-1 bg-transparent outline-none font-medium text-slate-800" placeholder="Sujet de l'e-mail" />
                 </div>
+                {emailError && <p className="text-sm text-red-600 pt-2">{emailError}</p>}
+                {emailSent && <p className="text-sm text-emerald-600 pt-2">Email envoyé avec succès !</p>}
               </div>
 
               {/* Toolbar */}
@@ -314,14 +358,14 @@ export default function MessagesPage() {
 
               {/* Text Area */}
               <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
-                <textarea className="w-full h-full resize-none outline-none text-slate-800" placeholder="Écrivez votre message ici..."></textarea>
+                <textarea value={composeBody} onChange={e => setComposeBody(e.target.value)} className="w-full h-full resize-none outline-none text-slate-800" placeholder="Écrivez votre message ici..."></textarea>
               </div>
 
               {/* Footer */}
               <div className="px-4 sm:px-6 py-3 sm:py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap sm:flex-nowrap justify-between items-center gap-3">
                 <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto order-2 sm:order-1">
-                  <button className="flex-1 sm:flex-none justify-center bg-emerald-500 hover:bg-emerald-600 text-white px-4 sm:px-6 py-2 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm text-sm sm:text-base">
-                    <Send size={16}/> Envoyer
+                  <button onClick={handleSendEmail} disabled={sendingEmail || !composeTo.trim() || !composeSubject.trim()} className="flex-1 sm:flex-none justify-center bg-emerald-500 hover:bg-emerald-600 text-white px-4 sm:px-6 py-2 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm text-sm sm:text-base disabled:opacity-50">
+                    {sendingEmail ? <><Loader2 size={16} className="animate-spin" /> Envoi...</> : <><Send size={16}/> Envoyer</>}
                   </button>
                   <button className="flex-1 sm:flex-none justify-center bg-amber-400 hover:bg-amber-500 text-white px-3 sm:px-4 py-2 rounded-xl font-medium flex items-center gap-2 transition-colors shadow-sm text-sm sm:text-base">
                     <StickyNote size={16}/> <span className="hidden sm:inline">Note Interne</span><span className="sm:hidden">Note</span>

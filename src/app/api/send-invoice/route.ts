@@ -6,14 +6,15 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { to, subject, message, invoiceNumber, amount } = body;
+    const { to, subject, message, invoiceNumber, amount, from } = body;
+    const fromEmail = from && ['gestion@leography.fr', 'contact@leography.fr'].includes(from) ? from : 'gestion@leography.fr';
 
     if (!to || !subject) {
       return NextResponse.json({ error: 'Destinataire et sujet requis' }, { status: 400 });
     }
 
     const { data, error } = await resend.emails.send({
-      from: 'gestion@leography.fr',
+      from: fromEmail,
       to: [to],
       subject,
       html: `
