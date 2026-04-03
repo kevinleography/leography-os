@@ -82,6 +82,22 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
     }
+
+    // Restrict access to allowed emails only
+    const allowedEmails = (process.env.ALLOWED_EMAILS || '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (allowedEmails.length > 0 && session.user?.email) {
+      const userEmail = session.user.email.toLowerCase();
+      if (!allowedEmails.includes(userEmail)) {
+        await supabase.auth.signOut();
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('error', 'unauthorized');
+        return NextResponse.redirect(loginUrl);
+      }
+    }
   } catch {
     // If Supabase is unreachable, redirect to login
     const loginUrl = new URL('/login', request.url);
