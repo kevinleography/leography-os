@@ -125,7 +125,7 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm"
             onClick={onClose}
           />
 
@@ -138,8 +138,8 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
             className={cn(
               'fixed top-[20%] left-1/2 -translate-x-1/2 z-50',
               'w-full max-w-[560px]',
-              'glass-panel overflow-hidden',
-              'shadow-[0_25px_60px_rgba(0,0,0,0.5)]'
+              'bg-white/80 backdrop-blur-2xl rounded-3xl border border-white/60 overflow-hidden',
+              'shadow-2xl'
             )}
           >
             {/* Search input */}

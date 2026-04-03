@@ -16,19 +16,18 @@ import {
   MessageSquare,
   Settings,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 const navItems = [
-  { href: '/dashboard', icon: Home, label: 'Accueil' },
-  { href: '/crm', icon: Users, label: 'Repertoire' },
-  { href: '/pipeline', icon: Target, label: 'Pipeline' },
-  { href: '/audit', icon: Bot, label: 'Audit IA' },
-  { href: '/projects', icon: FolderKanban, label: 'Projets' },
-  { href: '/documents/notes', icon: FileText, label: 'Notes' },
-  { href: '/finance', icon: CreditCard, label: 'Finance' },
-  { href: '/ads', icon: BarChart3, label: 'Ads' },
-  { href: '/messages', icon: MessageSquare, label: 'Messages' },
-  { href: '/settings', icon: Settings, label: 'Reglages' },
+  { href: '/dashboard', icon: Home, label: 'Accueil', gradient: 'from-slate-700 to-slate-900' },
+  { href: '/crm', icon: Users, label: 'Répertoire', gradient: 'from-blue-400 to-blue-600' },
+  { href: '/pipeline', icon: Target, label: 'Pipeline', gradient: 'from-orange-400 to-orange-600' },
+  { href: '/audit', icon: Bot, label: 'Audit IA', gradient: 'from-purple-400 to-purple-600' },
+  { href: '/projects', icon: FolderKanban, label: 'Projets', gradient: 'from-indigo-400 to-indigo-600' },
+  { href: '/documents/notes', icon: FileText, label: 'Notes', gradient: 'from-sky-400 to-sky-600' },
+  { href: '/finance', icon: CreditCard, label: 'Finance', gradient: 'from-amber-400 to-amber-600' },
+  { href: '/ads', icon: BarChart3, label: 'Ads', gradient: 'from-emerald-400 to-emerald-600' },
+  { href: '/messages', icon: MessageSquare, label: 'Messages', gradient: 'from-teal-400 to-teal-600' },
+  { href: '/settings', icon: Settings, label: 'Réglages', gradient: 'from-slate-500 to-slate-700' },
 ] as const;
 
 export function Dock() {
@@ -36,70 +35,44 @@ export function Dock() {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   return (
-    <nav className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2">
-      <div
-        className={cn(
-          'flex items-center gap-1 px-3 py-2',
-          'bg-glass backdrop-blur-2xl',
-          'border border-glass-border',
-          'rounded-2xl',
-          'shadow-[0_8px_32px_rgba(0,0,0,0.4)]'
-        )}
-      >
+    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+      <div className="flex items-end gap-2 sm:gap-3 px-3 py-2 sm:px-4 sm:py-3 bg-white/40 backdrop-blur-3xl rounded-3xl border border-white/50 shadow-2xl max-w-[95vw] overflow-x-auto hide-scrollbar">
         {navItems.map((item, index) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(item.href + '/');
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           const Icon = item.icon;
 
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="relative"
+              className="relative group outline-none"
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
             >
               <motion.div
-                className={cn(
-                  'flex items-center justify-center w-11 h-11 rounded-xl transition-colors duration-200',
-                  isActive
-                    ? 'bg-primary/20 text-primary'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-glass-hover'
-                )}
-                whileHover={{ scale: 1.3, y: -4 }}
+                className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-linear-to-br ${item.gradient} flex items-center justify-center text-white shadow-md border border-white/20`}
+                whileHover={{ scale: 1.15, y: -8 }}
+                animate={{ scale: isActive ? 1.05 : 1 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 17 }}
               >
-                <Icon className="w-5 h-5" />
+                <Icon size={24} className="opacity-90 drop-shadow-sm" />
               </motion.div>
 
-              {/* Active indicator dot */}
               {isActive && (
-                <motion.div
-                  className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary"
-                  layoutId="dock-active"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
+                <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-black/60 rounded-full" />
               )}
 
-              {/* Tooltip */}
               <AnimatePresence>
                 {hoveredIndex === index && (
-                  <motion.div
+                  <motion.span
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 4 }}
                     transition={{ duration: 0.15 }}
-                    className={cn(
-                      'absolute -top-10 left-1/2 -translate-x-1/2',
-                      'px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap',
-                      'bg-bg-tertiary/90 backdrop-blur-xl',
-                      'border border-glass-border',
-                      'text-text-primary',
-                      'pointer-events-none'
-                    )}
+                    className="absolute -top-12 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/70 backdrop-blur-md text-white text-xs font-medium rounded-lg pointer-events-none whitespace-nowrap shadow-xl border border-white/10"
                   >
                     {item.label}
-                  </motion.div>
+                  </motion.span>
                 )}
               </AnimatePresence>
             </Link>

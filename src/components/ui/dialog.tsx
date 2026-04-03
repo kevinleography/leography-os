@@ -102,7 +102,7 @@ const DialogContent = React.forwardRef<
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+        className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm animate-in fade-in duration-200"
         onClick={() => setOpen(false)}
       />
       {/* Content */}
@@ -110,8 +110,8 @@ const DialogContent = React.forwardRef<
         ref={ref}
         className={cn(
           'relative z-50 w-full max-w-lg mx-4',
-          'bg-bg-secondary/95 backdrop-blur-2xl',
-          'border border-glass-border rounded-2xl shadow-2xl',
+          'bg-white/90 backdrop-blur-2xl',
+          'border border-white/60 rounded-3xl shadow-2xl',
           'p-6',
           'animate-in fade-in zoom-in-95 duration-200',
           className

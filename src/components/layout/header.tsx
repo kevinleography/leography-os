@@ -1,113 +1,42 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
-import { Search, Bell } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-const pageTitles: Record<string, string> = {
-  '/dashboard': 'Accueil',
-  '/crm': 'Repertoire',
-  '/pipeline': 'Pipeline',
-  '/audit': 'Audit IA',
-  '/projects': 'Projets',
-  '/documents/notes': 'Notes',
-  '/finance': 'Finance',
-  '/ads': 'Ads',
-  '/messages': 'Messages',
-  '/settings': 'Reglages',
-};
-
-function getPageTitle(pathname: string): string {
-  if (pageTitles[pathname]) return pageTitles[pathname];
-  for (const [path, title] of Object.entries(pageTitles)) {
-    if (pathname.startsWith(path)) return title;
-  }
-  return 'LEOGRAPHY OS';
-}
+import { useState, useEffect } from 'react';
+import { Search, Wifi, Battery, Zap } from 'lucide-react';
 
 interface HeaderProps {
-  title?: string;
   onSearchOpen: () => void;
 }
 
-export function Header({ title, onSearchOpen }: HeaderProps) {
-  const pathname = usePathname();
-  const pageTitle = title ?? getPageTitle(pathname);
-  const notificationCount = 0;
+export function Header({ onSearchOpen }: HeaderProps) {
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <header
-      className={cn(
-        'fixed top-0 left-0 right-0 z-40 h-16',
-        'flex items-center justify-between px-6',
-        'bg-glass backdrop-blur-2xl',
-        'border-b border-glass-border'
-      )}
-    >
-      {/* Left: Page title */}
-      <h1 className="text-lg font-semibold text-text-primary">{pageTitle}</h1>
-
-      {/* Right: Actions */}
-      <div className="flex items-center gap-3">
-        {/* Search button */}
+    <header className="h-7 bg-white/40 backdrop-blur-md border-b border-white/20 flex items-center justify-between px-4 text-xs font-medium text-black/80 fixed top-0 w-full z-50">
+      <div className="flex items-center gap-4">
+        <Zap size={14} className="text-black fill-black" />
+        <span className="font-bold tracking-tight">LEOGRAPHY OS</span>
+      </div>
+      <div className="flex items-center gap-4">
         <button
           onClick={onSearchOpen}
-          className={cn(
-            'flex items-center gap-2 h-9 px-3 rounded-lg',
-            'bg-glass border border-glass-border',
-            'text-text-secondary text-sm',
-            'hover:bg-glass-hover hover:border-glass-border-hover',
-            'transition-all duration-200'
-          )}
+          className="flex items-center gap-1 hover:bg-black/5 px-2 py-0.5 rounded transition-colors"
         >
-          <Search className="w-4 h-4" />
-          <span className="hidden sm:inline">Rechercher</span>
-          <kbd
-            className={cn(
-              'hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
-              'bg-glass border border-glass-border',
-              'text-[10px] text-text-muted font-mono'
-            )}
-          >
-            <span className="text-[11px]">&#8984;</span>K
-          </kbd>
+          <Search size={12} />
+          <span className="hidden sm:inline opacity-60">⌘K</span>
         </button>
-
-        {/* Notifications */}
-        <button
-          className={cn(
-            'relative flex items-center justify-center w-9 h-9 rounded-lg',
-            'text-text-secondary',
-            'hover:bg-glass-hover hover:text-text-primary',
-            'transition-all duration-200'
-          )}
-        >
-          <Bell className="w-4 h-4" />
-          {notificationCount > 0 && (
-            <span
-              className={cn(
-                'absolute -top-0.5 -right-0.5 flex items-center justify-center',
-                'w-4 h-4 rounded-full',
-                'bg-destructive text-[10px] font-bold text-white'
-              )}
-            >
-              {notificationCount}
-            </span>
-          )}
-        </button>
-
-        {/* User avatar */}
-        <button
-          className={cn(
-            'flex items-center justify-center w-9 h-9 rounded-full',
-            'bg-primary/20 text-primary text-sm font-semibold',
-            'border border-primary/30',
-            'hover:bg-primary/30',
-            'transition-all duration-200'
-          )}
-        >
-          KL
-        </button>
+        <Wifi size={14} />
+        <Battery size={14} />
+        <span>
+          <span className="hidden sm:inline">
+            {time.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }).replace('.', '')}{' '}
+          </span>
+          {time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
     </header>
   );

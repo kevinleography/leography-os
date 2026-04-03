@@ -53,7 +53,7 @@ export default function DashboardLayout({
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
       </div>
     );
   }
@@ -72,7 +72,7 @@ export default function DashboardLayout({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="pt-20 pb-24 px-6"
+          className="pt-12 pb-28 px-4 sm:px-12 overflow-y-auto hide-scrollbar min-h-screen"
         >
           {children}
         </motion.main>

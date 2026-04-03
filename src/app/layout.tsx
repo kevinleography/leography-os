@@ -19,8 +19,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr" className={inter.variable}>
-      <body className={`${inter.className} bg-bg-primary min-h-screen`}>
-        <div className="bg-glow" />
+      <body className={`${inter.className} macos-bg min-h-screen`}>
         {children}
       </body>
     </html>
