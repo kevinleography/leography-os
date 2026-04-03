@@ -4,7 +4,6 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, User, FolderKanban, Target, CheckSquare, FileText, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface SpotlightProps {
   open: boolean;
@@ -37,22 +36,6 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Keyboard shortcut to open
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        if (!open) {
-          // Parent handles opening
-        } else {
-          onClose();
-        }
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
-
   // Focus input when opened
   useEffect(() => {
     if (open) {
@@ -63,7 +46,7 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
     }
   }, [open]);
 
-  // Search logic (placeholder - will call /api/search later)
+  // Search logic
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
@@ -73,7 +56,6 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
 
     setLoading(true);
     const timeout = setTimeout(() => {
-      // Placeholder: in the future, call /api/search?q=...
       setResults([]);
       setLoading(false);
     }, 300);
@@ -118,36 +100,28 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
   return (
     <AnimatePresence>
       {open && (
-        <>
-          {/* Overlay */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm"
-            onClick={onClose}
-          />
-
-          {/* Dialog */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh] bg-slate-900/20 backdrop-blur-sm p-4"
+          onClick={onClose}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: -20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -20 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              'fixed top-[20%] left-1/2 -translate-x-1/2 z-50',
-              'w-full max-w-[560px]',
-              'bg-white/80 backdrop-blur-2xl rounded-3xl border border-white/60 overflow-hidden',
-              'shadow-2xl'
-            )}
+            className="w-full max-w-2xl bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Search input */}
-            <div className="flex items-center gap-3 px-4 h-14 border-b border-glass-border">
+            {/* Search input row */}
+            <div className="p-4 border-b border-slate-200/50 flex items-center gap-3">
               {loading ? (
-                <Loader2 className="w-5 h-5 text-text-muted animate-spin shrink-0" />
+                <Loader2 className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
               ) : (
-                <Search className="w-5 h-5 text-text-muted shrink-0" />
+                <Search className="w-5 h-5 text-slate-400 shrink-0" />
               )}
               <input
                 ref={inputRef}
@@ -156,22 +130,13 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Rechercher des contacts, projets, deals..."
-                className={cn(
-                  'flex-1 bg-transparent text-sm text-text-primary',
-                  'placeholder:text-text-muted',
-                  'outline-none border-none'
-                )}
+                className="flex-1 bg-transparent border-none outline-none text-xl text-slate-800 placeholder-slate-400"
               />
               <button
                 onClick={onClose}
-                className="flex items-center justify-center shrink-0"
+                className="flex items-center justify-center shrink-0 p-1 hover:bg-black/5 rounded-lg transition-colors"
               >
-                <kbd
-                  className={cn(
-                    'px-1.5 py-0.5 rounded text-[10px] font-mono',
-                    'bg-glass border border-glass-border text-text-muted'
-                  )}
-                >
+                <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 border border-slate-200 text-slate-500">
                   ESC
                 </kbd>
               </button>
@@ -180,17 +145,17 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
             {/* Results */}
             <div className="max-h-[360px] overflow-y-auto p-2">
               {query.trim() && !loading && flatResults.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-text-muted">
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                   <Search className="w-8 h-8 mb-3 opacity-40" />
-                  <p className="text-sm">Aucun resultat pour &laquo; {query} &raquo;</p>
+                  <p className="text-sm">Aucun résultat pour « {query} »</p>
                   <p className="text-xs mt-1">Essayez un autre terme de recherche</p>
                 </div>
               )}
 
               {!query.trim() && !loading && (
-                <div className="flex flex-col items-center justify-center py-12 text-text-muted">
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                   <Search className="w-8 h-8 mb-3 opacity-40" />
-                  <p className="text-sm">Commencez a taper pour rechercher</p>
+                  <p className="text-sm">Commencez à taper pour rechercher</p>
                 </div>
               )}
 
@@ -198,7 +163,7 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
                 const GroupIcon = group.icon;
                 return (
                   <div key={group.type} className="mb-2">
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-muted uppercase tracking-wider">
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wider">
                       <GroupIcon className="w-3.5 h-3.5" />
                       {group.label}
                     </div>
@@ -209,18 +174,16 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
                           key={item.id}
                           onClick={() => handleSelect(item)}
                           onMouseEnter={() => setSelectedIndex(itemIndex)}
-                          className={cn(
-                            'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left',
-                            'transition-colors duration-100',
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors duration-100 ${
                             itemIndex === selectedIndex
-                              ? 'bg-primary/15 text-text-primary'
-                              : 'text-text-secondary hover:bg-glass-hover'
-                          )}
+                              ? 'bg-indigo-500/15 text-slate-800'
+                              : 'text-slate-600 hover:bg-white/60'
+                          }`}
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{item.title}</p>
                             {item.subtitle && (
-                              <p className="text-xs text-text-muted truncate mt-0.5">
+                              <p className="text-xs text-slate-400 truncate mt-0.5">
                                 {item.subtitle}
                               </p>
                             )}
@@ -233,7 +196,7 @@ export function Spotlight({ open, onClose }: SpotlightProps) {
               })}
             </div>
           </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
