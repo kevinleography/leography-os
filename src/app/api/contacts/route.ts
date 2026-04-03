@@ -2,6 +2,23 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { NextRequest, NextResponse } from 'next/server';
 import type { CreateContactPayload } from '@/types/database';
 
+async function notifyN8n(webhookEnvKey: string, payload: Record<string, any>) {
+  const url = process.env[webhookEnvKey];
+  if (!url) {
+    console.error(`[n8n] Variable d'environnement ${webhookEnvKey} non configurée — webhook ignoré`);
+    return;
+  }
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error(`[n8n] Échec appel webhook ${webhookEnvKey}:`, err);
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
@@ -38,7 +55,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ data, count });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -57,8 +74,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    // Fire-and-forget: notify n8n (WF-01 capture prospect)
+    notifyN8n('N8N_WEBHOOK_NEW_CONTACT', {
+      event: 'contact.created',
+      contact: data,
+      timestamp: new Date().toISOString(),
+    });
+
     return NextResponse.json(data, { status: 201 });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

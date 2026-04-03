@@ -3,22 +3,64 @@ import { NextRequest, NextResponse } from 'next/server';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+async function notifyN8n(webhookEnvKey: string, payload: Record<string, any>) {
+  const url = process.env[webhookEnvKey];
+  if (!url) {
+    console.error(`[n8n] Variable d'environnement ${webhookEnvKey} non configurée — webhook ignoré`);
+    return;
+  }
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error(`[n8n] Échec appel webhook ${webhookEnvKey}:`, err);
+  }
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
 
-    const { data, error } = await supabaseAdmin
-      .from('contacts')
-      .select('*')
-      .eq('id', id)
-      .single();
+    // Fetch contact with related data
+    const [contactRes, interactionsRes, dealsRes, documentsRes] = await Promise.all([
+      supabaseAdmin
+        .from('contacts')
+        .select('*')
+        .eq('id', id)
+        .single(),
+      supabaseAdmin
+        .from('interactions')
+        .select('*')
+        .eq('contact_id', id)
+        .order('date', { ascending: false })
+        .limit(20),
+      supabaseAdmin
+        .from('deals')
+        .select('*, stage:pipeline_stages(name, color)')
+        .eq('contact_id', id)
+        .order('created_at', { ascending: false }),
+      supabaseAdmin
+        .from('documents')
+        .select('*')
+        .eq('contact_id', id)
+        .order('created_at', { ascending: false })
+        .limit(10),
+    ]);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (contactRes.error) {
+      return NextResponse.json({ error: contactRes.error.message }, { status: 404 });
     }
 
-    return NextResponse.json(data);
-  } catch (err) {
+    return NextResponse.json({
+      ...contactRes.data,
+      interactions: interactionsRes.data || [],
+      deals: dealsRes.data || [],
+      documents: documentsRes.data || [],
+    });
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -39,8 +81,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    // Fire-and-forget: notify n8n
+    notifyN8n('N8N_WEBHOOK_CONTACT_UPDATED', {
+      event: 'contact.updated',
+      contact: data,
+      changes: Object.keys(body),
+      timestamp: new Date().toISOString(),
+    });
+
     return NextResponse.json(data);
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -59,7 +109,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
