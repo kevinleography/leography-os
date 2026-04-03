@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   UserCog, Settings, Key, Server, ShieldCheck, Save, Plus, Copy,
   CheckCircle2, RefreshCw, Zap, Wifi, Database, Send, Calendar,
-  FileSignature, X, CreditCard, GitBranch
+  FileSignature, X, CreditCard, GitBranch, Users, Trash2, Loader2, AlertCircle
 } from 'lucide-react';
 
 const app = {
@@ -14,7 +14,15 @@ const app = {
   gradient: 'from-slate-500 to-slate-700',
 };
 
-type Tab = 'profil' | 'agence' | 'api' | 'portail' | 'systeme';
+type Tab = 'profil' | 'agence' | 'api' | 'acces' | 'portail' | 'systeme';
+
+interface AllowedUser {
+  id: string;
+  email: string;
+  role: 'admin' | 'collaborator';
+  name: string | null;
+  created_at: string;
+}
 
 interface IntegrationItem {
   key: string;
@@ -42,6 +50,15 @@ export default function SettingsPage() {
   );
   const [loadingStatus, setLoadingStatus] = useState(true);
 
+  // Access management state
+  const [allowedUsers, setAllowedUsers] = useState<AllowedUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState<'admin' | 'collaborator'>('collaborator');
+  const [addingUser, setAddingUser] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+
   useEffect(() => {
     setLoadingStatus(true);
     fetch('/api/settings/status')
@@ -60,6 +77,67 @@ export default function SettingsPage() {
       .finally(() => setLoadingStatus(false));
   }, []);
 
+  // Fetch allowed users when tab changes to 'acces'
+  useEffect(() => {
+    if (activeTab !== 'acces') return;
+    setLoadingUsers(true);
+    fetch('/api/allowed-users')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setAllowedUsers(data))
+      .catch(() => setAllowedUsers([]))
+      .finally(() => setLoadingUsers(false));
+  }, [activeTab]);
+
+  const handleAddUser = async () => {
+    if (!newEmail.trim()) return;
+    setAddingUser(true);
+    setAccessError(null);
+    try {
+      const res = await fetch('/api/allowed-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newEmail.trim(), name: newName.trim(), role: newRole }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setAccessError(err.error || 'Erreur');
+        return;
+      }
+      const user = await res.json();
+      setAllowedUsers(prev => [...prev, user]);
+      setNewEmail('');
+      setNewName('');
+      setNewRole('collaborator');
+    } catch {
+      setAccessError('Erreur réseau');
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
+  const handleRemoveUser = async (id: string) => {
+    const res = await fetch(`/api/allowed-users/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setAllowedUsers(prev => prev.filter(u => u.id !== id));
+    } else {
+      const err = await res.json();
+      setAccessError(err.error || 'Erreur');
+    }
+  };
+
+  const handleToggleRole = async (user: AllowedUser) => {
+    const newUserRole = user.role === 'admin' ? 'collaborator' : 'admin';
+    const res = await fetch(`/api/allowed-users/${user.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: newUserRole }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setAllowedUsers(prev => prev.map(u => u.id === user.id ? updated : u));
+    }
+  };
+
   const handleSave = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -74,6 +152,7 @@ export default function SettingsPage() {
     { id: 'profil', label: 'Profil', icon: UserCog },
     { id: 'agence', label: 'Agence', icon: Settings },
     { id: 'api', label: 'API & Intégrations', icon: Key },
+    { id: 'acces' as Tab, label: 'Accès', icon: Users },
     { id: 'portail', label: 'Portail Client', icon: ShieldCheck },
     { id: 'systeme', label: 'Système', icon: Server },
   ];
@@ -253,6 +332,94 @@ export default function SettingsPage() {
                         <p className="text-xs text-slate-500">{integration.description}</p>
                       </div>
                       <div className={`w-2 h-2 rounded-full ${integration.connected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Accès Tab */}
+        {activeTab === 'acces' && (
+          <div className="max-w-2xl space-y-6">
+            <div className="bg-white/60 backdrop-blur-xl p-6 rounded-3xl border border-white/60 shadow-sm">
+              <h3 className="font-bold text-slate-800 mb-2">Utilisateurs autorisés</h3>
+              <p className="text-sm text-slate-500 mb-6">Seuls les emails listés ci-dessous peuvent se connecter à LEOGRAPHY OS.</p>
+
+              {accessError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm mb-4">
+                  <AlertCircle size={16} className="shrink-0" />
+                  {accessError}
+                  <button onClick={() => setAccessError(null)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+
+              {/* Add user form */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6 p-4 bg-slate-50/50 border border-slate-200/50 rounded-2xl">
+                <input
+                  type="text"
+                  placeholder="Nom"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="sm:w-32 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all text-slate-800"
+                />
+                <input
+                  type="email"
+                  placeholder="email@exemple.com"
+                  value={newEmail}
+                  onChange={e => setNewEmail(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all text-slate-800"
+                />
+                <select
+                  value={newRole}
+                  onChange={e => setNewRole(e.target.value as 'admin' | 'collaborator')}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all text-slate-800"
+                >
+                  <option value="collaborator">Collaborateur</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  onClick={handleAddUser}
+                  disabled={addingUser || !newEmail.trim()}
+                  className={`${app.color} text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2 text-sm hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50`}
+                >
+                  {addingUser ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                  Ajouter
+                </button>
+              </div>
+
+              {/* Users list */}
+              {loadingUsers ? (
+                <div className="p-8 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin" /> Chargement...
+                </div>
+              ) : allowedUsers.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">Aucun utilisateur configuré</p>
+              ) : (
+                <div className="space-y-2">
+                  {allowedUsers.map(user => (
+                    <div key={user.id} className="flex items-center gap-4 p-4 bg-slate-50/50 border border-slate-200/50 rounded-2xl">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center text-slate-600 font-bold text-sm shadow-inner shrink-0">
+                        {(user.name || user.email)[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-slate-800 text-sm truncate">{user.name || '—'}</p>
+                        <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                      </div>
+                      <button
+                        onClick={() => handleToggleRole(user)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold ${user.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'} hover:opacity-80 transition-opacity`}
+                      >
+                        {user.role === 'admin' ? 'Admin' : 'Collaborateur'}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveUser(user.id)}
+                        className="p-2 text-slate-400 hover:text-red-500 transition-colors rounded-xl hover:bg-red-50"
+                        title="Supprimer l'accès"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   ))}
                 </div>

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 
 const protectedPaths = [
   '/dashboard',
@@ -83,15 +84,20 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Restrict access to allowed emails only
-    const allowedEmails = (process.env.ALLOWED_EMAILS || '')
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
+    // Check allowed_users table
+    if (session.user?.email) {
+      const adminClient = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+      const { data: allowed } = await adminClient
+        .from('allowed_users')
+        .select('id')
+        .eq('email', session.user.email.toLowerCase())
+        .single();
 
-    if (allowedEmails.length > 0 && session.user?.email) {
-      const userEmail = session.user.email.toLowerCase();
-      if (!allowedEmails.includes(userEmail)) {
+      if (!allowed) {
         await supabase.auth.signOut();
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('error', 'unauthorized');
