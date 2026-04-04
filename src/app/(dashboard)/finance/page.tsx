@@ -56,7 +56,7 @@ export default function Finance() {
 
   // Invoice creation modal
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [invoiceForm, setInvoiceForm] = useState({ contact_id: '', amount: '', description: '' });
+  const [invoiceForm, setInvoiceForm] = useState({ contact_id: '', amount: '' });
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
@@ -203,14 +203,13 @@ export default function Finance() {
         amount,
         type: 'one_shot',
         status: 'pending',
-        description: invoiceForm.description,
       });
       if (error) {
         setInvoiceError(error.message);
         return;
       }
       setShowInvoiceModal(false);
-      setInvoiceForm({ contact_id: '', amount: '', description: '' });
+      setInvoiceForm({ contact_id: '', amount: '' });
       window.location.reload();
     } catch {
       setInvoiceError('Erreur réseau');
@@ -563,10 +562,6 @@ export default function Finance() {
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Montant TTC (€)</label>
                     <input type="number" step="0.01" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} placeholder="1800.00" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Description</label>
-                    <input type="text" value={invoiceForm.description} onChange={e => setInvoiceForm(f => ({ ...f, description: e.target.value }))} placeholder="Prestation web" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-800 outline-none focus:ring-2 focus:ring-amber-500/20" />
                   </div>
                   {invoiceError && <p className="text-sm text-red-600">{invoiceError}</p>}
                   <button onClick={handleCreateInvoice} disabled={creatingInvoice || !invoiceForm.contact_id || !invoiceForm.amount} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-md hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
