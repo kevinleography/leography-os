@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { stripe } from '@/lib/stripe/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/email/send';
 import { quoteEmail, signatureRequestEmail } from '@/lib/email/templates';
@@ -68,20 +69,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // Also store as document
-    await supabaseAdmin.from('documents').insert({
-      contact_id: body.contact_id,
-      type: 'contract',
-      name: `Devis ${ref}`,
-      storage_path: `quotes/${data.id}.json`,
-      file_size: 0,
-    });
-
-    // Send DocuSeal signature request + branded email
+    // Fetch contact details for Stripe + email
     const contact = data.contacts as any;
     const { data: contactFull } = await supabaseAdmin
       .from('contacts')
-      .select('email')
+      .select('email, stripe_customer_id')
       .eq('id', body.contact_id)
       .single();
 
@@ -93,10 +85,92 @@ export async function POST(request: NextRequest) {
       ? new Date(body.valid_until).toLocaleDateString('fr-FR')
       : '';
 
-    const templateId = process.env.DOCUSEAL_QUOTE_TEMPLATE_ID;
-    let signUrl = `${process.env.NEXT_PUBLIC_APP_URL}/portal/validations`;
+    // --- Create Stripe Quote for PDF generation ---
+    let stripeQuoteId: string | null = null;
+    let hostedQuoteUrl: string | null = null;
+    let stripePdfUrl: string | null = null;
 
-    // Create DocuSeal submission if template is configured
+    try {
+      // Get or create Stripe customer
+      let customerId = contactFull?.stripe_customer_id;
+      if (!customerId && clientEmail) {
+        const customer = await stripe.customers.create({
+          email: clientEmail,
+          name: clientName,
+          metadata: { contact_id: body.contact_id },
+        });
+        customerId = customer.id;
+        await supabaseAdmin
+          .from('contacts')
+          .update({ stripe_customer_id: customerId })
+          .eq('id', body.contact_id);
+      }
+
+      if (customerId) {
+        // Create a Stripe Product for this quote
+        const product = await stripe.products.create({
+          name: `Devis ${ref}`,
+          description: body.description || `Prestation LEOGRAPHY — ${ref}`,
+          metadata: { leography_quote_id: data.id },
+        });
+
+        // Create Stripe Quote
+        const stripeQuote = await stripe.quotes.create({
+          customer: customerId,
+          line_items: [
+            {
+              price_data: {
+                currency: 'eur',
+                product: product.id,
+                unit_amount: Math.round(body.amount_ttc || body.amount_ht),
+              },
+              quantity: 1,
+            },
+          ],
+          expires_at: body.valid_until
+            ? Math.floor(new Date(body.valid_until).getTime() / 1000)
+            : Math.floor(Date.now() / 1000) + 30 * 24 * 3600, // 30 days default
+          metadata: {
+            leography_quote_id: data.id,
+            reference: ref,
+          },
+        });
+
+        // Finalize the quote to make PDF available
+        const finalizedQuote = await stripe.quotes.finalizeQuote(stripeQuote.id);
+
+        stripeQuoteId = finalizedQuote.id;
+        hostedQuoteUrl = (finalizedQuote as any).hosted_quote_url || null;
+        stripePdfUrl = (finalizedQuote as any).pdf || null;
+
+        // Save Stripe quote ID on our quote
+        await supabaseAdmin
+          .from('quotes')
+          .update({ stripe_payment_id: stripeQuoteId })
+          .eq('id', data.id);
+      }
+    } catch (stripeErr) {
+      // Stripe quote creation failed — continue without PDF
+      console.error('Stripe quote creation failed:', stripeErr);
+    }
+
+    // Also store as document
+    await supabaseAdmin.from('documents').insert({
+      contact_id: body.contact_id,
+      type: 'contract',
+      name: `Devis ${ref}`,
+      storage_path: `quotes/${data.id}.json`,
+      file_size: 0,
+    });
+
+    // Determine the best URL for the client
+    const viewUrl = hostedQuoteUrl
+      || `${process.env.NEXT_PUBLIC_APP_URL}/api/finance/quotes/${data.id}/pdf`;
+
+    // Send DocuSeal signature request + branded email
+    const templateId = process.env.DOCUSEAL_QUOTE_TEMPLATE_ID;
+    let signUrl = viewUrl;
+
     if (templateId && clientEmail) {
       try {
         const submission = await createSubmission({
@@ -116,7 +190,6 @@ export async function POST(request: NextRequest) {
 
         if (slug) signUrl = `https://docuseal.com/s/${slug}`;
 
-        // Save DocuSeal submission ID on the quote document
         await supabaseAdmin
           .from('documents')
           .update({
@@ -125,13 +198,11 @@ export async function POST(request: NextRequest) {
           })
           .eq('storage_path', `quotes/${data.id}.json`);
 
-        // Also save on the quote itself
         await supabaseAdmin
           .from('quotes')
           .update({ docuseal_submission_id: submissionId })
           .eq('id', data.id);
 
-        // Send signature request email
         if (clientEmail) {
           await sendEmail({
             to: clientEmail,
@@ -143,30 +214,28 @@ export async function POST(request: NextRequest) {
           }).catch(() => {});
         }
       } catch {
-        // DocuSeal failed — fall back to regular quote email
         if (clientEmail) {
           await sendEmail({
             to: clientEmail,
             ...quoteEmail({
               clientName,
               reference: ref,
-              amount: formatCurrency(body.amount_ttc),
+              amount: formatCurrency(body.amount_ttc || body.amount_ht),
               validUntil: validDate,
-              viewUrl: signUrl,
+              viewUrl,
             }),
           }).catch(() => {});
         }
       }
     } else if (clientEmail) {
-      // No DocuSeal template — send standard quote email
       await sendEmail({
         to: clientEmail,
         ...quoteEmail({
           clientName,
           reference: ref,
-          amount: formatCurrency(body.amount_ttc),
+          amount: formatCurrency(body.amount_ttc || body.amount_ht),
           validUntil: validDate,
-          viewUrl: signUrl,
+          viewUrl,
         }),
       }).catch(() => {});
     }

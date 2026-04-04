@@ -197,15 +197,17 @@ export default function Finance() {
     setInvoiceError(null);
     try {
       const amount = Math.round(parseFloat(invoiceForm.amount) * 100);
-      const supabase = createClient();
-      const { error } = await supabase.from('payments').insert({
-        contact_id: invoiceForm.contact_id,
-        amount,
-        type: 'one_shot',
-        status: 'pending',
+      const res = await fetch('/api/finance/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact_id: invoiceForm.contact_id,
+          amount,
+        }),
       });
-      if (error) {
-        setInvoiceError(error.message);
+      if (!res.ok) {
+        const err = await res.json();
+        setInvoiceError(err.error || 'Erreur Stripe');
         return;
       }
       setShowInvoiceModal(false);
@@ -358,7 +360,7 @@ export default function Finance() {
                         >
                           <Send size={16} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); alert('Génération PDF à venir — utilisez l\'envoi par email pour le moment.'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger PDF"><Download size={18} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); window.open(`/api/finance/receipts/${inv.id}`, '_blank'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger reçu"><Download size={18} /></button>
                       </div>
                     </div>
                   </div>
@@ -398,7 +400,7 @@ export default function Finance() {
                       <span className="font-bold text-slate-800">{formatAmount(q.amount)}</span>
                       <div className="flex items-center gap-4">
                         <span className={`px-3 py-1 rounded-lg text-xs font-bold ${st.cls}`}>{st.label}</span>
-                        <button onClick={(e) => { e.stopPropagation(); alert('Génération PDF à venir — utilisez l\'envoi par email pour le moment.'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger PDF"><Download size={18} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); window.open(`/api/finance/quotes/${q.id}/pdf`, '_blank'); }} className="text-slate-400 hover:text-slate-600" title="Télécharger PDF"><Download size={18} /></button>
                       </div>
                     </div>
                   </div>
