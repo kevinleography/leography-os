@@ -149,9 +149,15 @@ export async function POST(request: NextRequest) {
           .update({ stripe_payment_id: stripeQuoteId })
           .eq('id', data.id);
       }
-    } catch (stripeErr) {
-      // Stripe quote creation failed — continue without PDF
-      console.error('Stripe quote creation failed:', stripeErr);
+    } catch (stripeErr: any) {
+      // Stripe quote creation failed — continue with jspdf fallback
+      console.error('Stripe quote creation failed:', stripeErr?.message || stripeErr);
+      // Store error for debugging (non-blocking)
+      await supabaseAdmin
+        .from('quotes')
+        .update({ pdf_url: `stripe_error: ${stripeErr?.message || 'unknown'}` })
+        .eq('id', data.id)
+        .then(() => {}, () => {});
     }
 
     // Also store as document
